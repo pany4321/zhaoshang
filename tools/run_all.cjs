@@ -8,14 +8,10 @@
 // 用法（推荐走根目录 package.json 入口）：
 //   npm test            # 等价于 node tools/run_all.cjs
 //   npm run sync        # 前置检查失败时先同步
-// jsdom 相关脚本需要 NODE_PATH 指向含 jsdom 的目录（未设置时使用本机默认，可用环境变量覆盖）。
+// jsdom 来自根目录 devDependencies（npm install 后自动解析，无需 NODE_PATH）。
 // ============================================================
 const { spawnSync } = require('child_process');
 const path = require('path');
-
-// jsdom 兜底路径（环境变量已设置时不覆盖）
-process.env.NODE_PATH = process.env.NODE_PATH
-  || 'C:\\Users\\pan\\.workbuddy\\binaries\\node\\workspace\\node_modules';
 
 // ---------- 0. 前置检查：引擎一致性（demo ↔ web/public/engine） ----------
 const syncCheck = spawnSync('python', [path.join(__dirname, 'sync_engine.py'), '--check'], {
@@ -29,7 +25,7 @@ if (syncCheck.status !== 0) {
   process.exit(1);
 }
 
-// [脚本, 说明, 是否需要 NODE_PATH(jsdom)]
+// [脚本, 说明, 是否依赖 jsdom]
 const SUITE = [
   ['smoke_test.js', '9 页渲染冒烟', true],
   ['smoke_interaction.js', '数据对账 + 下钻链路', true],
@@ -74,7 +70,7 @@ async function serverAlive() {
     if (code !== 0) {
       failed++;
       if (code === null && needsJsdom && /Cannot find module 'jsdom'|MODULE_NOT_FOUND/.test(out)) {
-        console.log('提示：该脚本依赖 jsdom，请设置 NODE_PATH 后重试。');
+        console.log('提示：该脚本依赖 jsdom——请在项目根目录执行 npm install 后重试。');
       }
     }
   }

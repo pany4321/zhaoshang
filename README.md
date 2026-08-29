@@ -1,5 +1,11 @@
 # 招商企业服务与智慧监管平台
 
+[![CI](https://github.com/pany4321/zhaoshang/actions/workflows/ci.yml/badge.svg)](https://github.com/pany4321/zhaoshang/actions/workflows/ci.yml)
+[![在线演示](https://img.shields.io/badge/在线演示-GitHub_Pages-2563EB)](https://pany4321.github.io/zhaoshang/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E)](LICENSE)
+
+> 🖥️ **在线 demo（纯前端原型）**：<https://pany4321.github.io/zhaoshang/>（登录账号 admin / admin123）
+
 本仓库包含平台的**两种交付形态**，共享同一套视觉设计与功能定义：
 
 - **纯前端高保真原型（`demo/`）**——原版、风格与功能的唯一基准。无后端、无构建、无网络请求，数据全部由 `mock.js` 在浏览器内确定性生成，可直接打开运行，适合演示、评审与原型验证。

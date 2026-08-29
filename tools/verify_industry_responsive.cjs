@@ -2,7 +2,7 @@
  * 验证招商驾驶舱「产业分布结构」卡片在超窄屏 / 窄屏 / 宽屏三档下的布局切换，
  * 确保窄屏将图例移至饼图下方（横向换行、完整显示、不截断不挤压），扇区直接标签隐藏、
  * 饼图以像素半径固定在上方区域与底部图例互不重叠。
- * 用法：NODE_PATH=<workspace>/node_modules node tools/verify_industry_responsive.cjs
+ * 用法：node tools/verify_industry_responsive.cjs（jsdom 来自根目录 devDependencies）
  */
 const fs = require('fs');
 const path = require('path');

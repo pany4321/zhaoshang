@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装根依赖（jsdom 测试环境）
+        run: npm install
+
+      - name: 安装 server 依赖
+        working-directory: server
+        run: npm install
+
+      - name: 安装 web 依赖
+        working-directory: web
+        run: npm install
+
+      - name: 生成 Prisma Client 并准备数据库
+        working-directory: server
+        run: |
+          npx prisma generate
+          npx prisma migrate deploy
+          npm run db:seed
+
+      - name: 后台启动 server
+        working-directory: server
+        run: |
+          npx tsx src/index.ts > server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/health > /dev/null; then
+              echo "server ready"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://localhost:3000/api/health > /dev/null || (cat server.log && exit 1)
+
+      - name: 全量测试套件（含引擎一致性前置检查与接口回归）
+        run: npm test
+
+      - name: 构建 web 生产产物
+        run: npm run build:web

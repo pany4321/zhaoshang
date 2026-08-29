@@ -23,14 +23,14 @@ The V5 full-stack version (`server/` + `web/`) replicates all 9 demo pages 1:1: 
 - `tools/check_data_parity.cjs` — parity check: demo MOCK vs `demo-fixtures.json` (entity counts, ID sets, name order, risk distributions, referential integrity). Offline; in run_all.
 - `tools/verify_web_api.cjs` — web API regression against a running server (login → bootstrap-vs-fixtures counts → dirty task → reset-demo restores baseline → 401 without auth). Requires `cd server && npm run dev`; run_all skips it when the server is down.
 - `tools/build_engine_mock.py` — regenerates `web/public/engine/mock.js` from `demo/assets/data/mock.js`: copies it verbatim (demo mock.js is already the injectable-RNG shape: `enrich`/`deriveAll` take `R`, bodies use `R.*`, own `return`), strips the old export block, and appends the unified export + `MOCK_ENGINE` (`rebuild` replaces the closure arrays **in place** so `entById` etc. stay in sync with `global.MOCK`). Self-checks `R.R.` double-prefix and brace balance.
-- `tools/run_all.cjs` — unified test entry: runs the whole suite below plus the API regression (skipped when server is down) and exits non-zero on any failure (`NODE_PATH="…node_modules" node tools/run_all.cjs`).
+- `tools/run_all.cjs` — unified test entry: runs the whole suite below plus the API regression (skipped when server is down) and exits non-zero on any failure (`npm test`).
 - `tools/test_engine_rebuild.cjs` — Node smoke test for the engine mock (local generation output + server-data rebuild path).
 - `tools/smoke_test.js` — JSDOM smoke test: loads the demo's JS files, renders all 9 pages, asserts `#content` is non-trivial. Must be run from the repo root (path joins `../demo`).
 - `tools/smoke_interaction.js` — JSDOM interaction smoke test: data reconciliation + full drill-down chain (dispatch → task → complete → closed loop). Exits non-zero when any assertion prints ❌.
 - `tools/check_invariants.js` — risk-event three-state-model invariant check (status legality, event↔task mapping, count conservation, temporal consistency).
 - `.workbuddy/memory/` — work logs from prior development sessions.
 
-No git repo, no linter. The root `package.json` exists **only** as the workflow entry point (sync / fixtures / parity / test / build scripts — see the mandatory tooling workflow above); the demo itself still has no build step. All UI text and docs are Chinese (zh-CN).
+Hosted on GitHub (`pany4321/zhaoshang`, branch `master`): CI (`.github/workflows/ci.yml`) runs `npm test` + `npm run build:web` on every push/PR; `deploy-demo.yml` publishes `demo/` to GitHub Pages at https://pany4321.github.io/zhaoshang/ on demo changes. MIT LICENSE. The root `package.json` exists **only** as the workflow entry point (sync / fixtures / parity / test / build scripts — see the mandatory tooling workflow above); the demo itself still has no build step. All UI text and docs are Chinese (zh-CN).
 
 ## Running the demo
 

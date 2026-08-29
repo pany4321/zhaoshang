@@ -12,5 +12,8 @@
     "test:api": "node tools/verify_web_api.cjs",
     "build:web": "cd web && npm run build-only",
     "seed": "cd server && npm run db:seed"
+  },
+  "devDependencies": {
+    "jsdom": "^30.0.1"
   }
 }

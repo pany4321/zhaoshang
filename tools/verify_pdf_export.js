@@ -2,7 +2,7 @@
  * 文字版 PDF 导出验证：JSDOM + 真实 jspdf/autotable + 生成的字体子集，
  * 走 profile.js 的 buildPdfDoc 全流程产出 PDF，校验文件头/大小/页数。
  * 运行（项目根目录）：
- *   NODE_PATH="C:\Users\pan\.workbuddy\binaries\node\workspace\node_modules" node tools/verify_pdf_export.js
+ *   node tools/verify_pdf_export.js
  */
 const fs = require('fs');
 const path = require('path');
