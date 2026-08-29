@@ -1,0 +1,222 @@
+// 招商企业服务与智慧监管平台 — 数据模型
+// 演示系统，数据库：SQLite
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:../data/demo.db"
+}
+
+// ============ 基础字典 ============
+
+model District {
+  id        String     @id // 如 'xfq'
+  name      String     // 如 '西峰区'
+  sort      Int        @default(0)
+  enterprises Enterprise[]
+  projects    Project[]
+  riskEvents  RiskEvent[]
+  users       User[]
+}
+
+model Industry {
+  id        String     @id
+  name      String
+  sort      Int        @default(0)
+  enterprises Enterprise[]
+  projects    Project[]
+  policies    Policy[]
+}
+
+// ============ 用户 ============
+
+model User {
+  id       Int      @id @default(autoincrement())
+  username String   @unique
+  password String
+  name     String
+  role     String   @default("worker") // admin / leader / worker
+  districtId String?
+  district District? @relation(fields: [districtId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+// ============ 企业 ============
+
+model Enterprise {
+  id          String   @id // E001 ...
+  name        String
+  creditCode  String   @unique // 统一社会信用代码
+  legal       String   // 法定代表人
+  found       String   // 成立日期
+  scale       String   // 大型 / 中型 / 小型 / 微型
+  bizStatus   String   // 在营 / 异常 / 注销
+  creditStatus String  // 良好 / 关注 / 较差
+  regCapital  String   // 注册资本
+  districtId  String
+  district    District @relation(fields: [districtId], references: [id])
+  industryId  String
+  industry    Industry @relation(fields: [industryId], references: [id])
+  isKey       Boolean  @default(false) // 重点企业
+  isNew       Boolean  @default(false) // 本月新增
+  newDate     String?  // 签约日期
+
+  // 核心指标
+  revenue     Float    @default(0) // 年营收（万元）
+  tax         Float    @default(0) // 纳税（万元）
+  investment  Float    @default(0) // 固投（万元）
+  employees   Int      @default(0) // 员工数
+  landMu      Float    @default(0) // 用地（亩）
+  performRate Int      @default(90) // 履约率 %
+  commitRate  Int?     // 承诺完成率 %
+
+  // 风险
+  riskScore   Int      @default(0)
+  riskLevel   String   @default("blue") // red / orange / yellow / blue
+  riskOp      Float    @default(0) // 经营风险
+  riskFin     Float    @default(0) // 财务风险
+  riskLegal   Float    @default(0) // 司法风险
+  riskCredit  Float    @default(0) // 信用风险
+  riskTender  Float    @default(0) // 招投标
+  riskTax     Float    @default(0) // 税务
+  riskCommit  Float    @default(0) // 招商履约
+  riskIp      Float    @default(0) // 知识产权
+
+  // 关系
+  shareholders Shareholder[]
+  projects     Project?
+  riskEvents   RiskEvent[]
+  tasks        Task[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Shareholder {
+  id         Int        @id @default(autoincrement())
+  enterpriseId String
+  enterprise  Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  name       String
+  ratio      Float // 持股比例 %
+  sort       Int    @default(0)
+}
+
+// ============ 风险事件 ============
+
+model RiskEvent {
+  id           String     @id // R001 ...
+  title        String
+  dimension    String     // 维度 key
+  dimensionName String
+  level        String     // red / orange / yellow / blue
+  status       String     // pending / doing / done
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id])
+  districtId   String
+  district     District   @relation(fields: [districtId], references: [id])
+  foundDate    String
+  detail       String
+  suggestion   String
+  taskId       Int?       @unique
+  task         Task?      @relation(fields: [taskId], references: [id])
+  createdAt    DateTime   @default(now())
+}
+
+// ============ 任务 ============
+
+model Task {
+  id            Int      @id @default(autoincrement())
+  title         String
+  type          String   // risk / project / service / policy / patrol
+  priority      String   // high / normal / low
+  status        String   // pending / doing / done / overdue
+  dueDate       String
+  createdAt     String
+  finishedAt    String?
+  description   String?
+  processLog    String?  // 处理过程记录
+
+  enterpriseId  String?
+  enterprise    Enterprise? @relation(fields: [enterpriseId], references: [id])
+  projectId     String?
+  project       Project?    @relation(fields: [projectId], references: [id])
+
+  assignee      String   // 负责人用户名
+  source        String?  // 来源：风险事件/项目跟进/...
+
+  riskEvent     RiskEvent?
+}
+
+// ============ 招商项目 ============
+
+model Project {
+  id           String     @id // P001 ...
+  name         String
+  enterpriseId String     @unique
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id])
+  stage        Int        @default(0) // 0-5: 线索→洽谈→签约→建设→投产→达产
+  stageName    String
+  progress     Int        @default(5) // %
+  investment   Float      @default(0) // 总投资 万元
+  districtId   String
+  district     District   @relation(fields: [districtId], references: [id])
+  industryId   String
+  industry     Industry   @relation(fields: [industryId], references: [id])
+  org          String     // 责任单位
+  contact      String?    // 联系人
+  riskLevel    String     // red / orange / yellow / blue
+  riskScore    Int        @default(0)
+  startDate    String     // 线索对接日期
+
+  // 六阶段进展（JSON 字符串存）
+  stage1Detail String? // 线索对接
+  stage2Detail String? // 深度洽谈
+  stage3Detail String? // 签约落地
+  stage4Detail String? // 建设推进
+  stage5Detail String? // 投产运营
+  stage6Detail String? // 达产评价
+
+  lastContact  String? // 最近对接时间
+  tasks        Task[]
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+// ============ 政策 ============
+
+model Policy {
+  id          String   @id // POL001 ...
+  title       String
+  category    String   // 产业 / 财税 / 人才 / 科技 / 金融 / 用地
+  level       String   // national / provincial / municipal / district
+  dept        String   // 发布部门
+  publishDate String
+  summary     String
+  target      String   // 适用对象
+  support     String   // 支持方式
+  materials   String   // 申报材料
+  hot         Int      @default(0) // 热度
+  industryId  String?
+  industry    Industry? @relation(fields: [industryId], references: [id])
+  amount      Float    @default(0) // 年度金额（万元）
+  redeemed    Float    @default(0) // 已兑现金额
+  helpedEnts  Int      @default(0) // 惠及企业数
+  createdAt   DateTime @default(now())
+}
+
+// ============ AI 对话（智能体） ============
+
+model AiConversation {
+  id          Int      @id @default(autoincrement())
+  agentType   String   // insight / risk / plan / service
+  username    String
+  messages    String   // JSON 数组字符串
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([agentType, username])
+}

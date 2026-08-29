@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+web/vite.config.d.ts
+server/public/
+
+# Database
+server/data/*.db
+server/data/*.db-journal
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Others
+.cache/
+.tmp/
+coverage/
+
+# 本地文件
+.workbuddy/
+web/_probe.js
+庆阳市行政区划图.jpeg.bak

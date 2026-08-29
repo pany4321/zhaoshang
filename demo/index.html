@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>招商企业服务与智慧监管平台</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <script>
+    /* 登录门禁：未登录时立即隐藏主应用，避免登录页渲染前闪现主界面 */
+    try { if (!localStorage.getItem('zs_token')) document.documentElement.classList.add('logged-out'); } catch (e) {}
+  </script>
+</head>
+<body>
+  <div class="app">
+    <!-- 全宽顶部栏 -->
+    <header class="app-header">
+      <button class="nav-toggle" id="navToggle" aria-label="打开导航">☰</button>
+      <button class="side-toggle" id="sideToggle" title="收起菜单">«</button>
+      <div class="brand">
+        <span class="logo-mark">
+          <svg width="30" height="30" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- 关联网络暗点（关系图谱底色） -->
+            <g fill="#fff" opacity="0.16">
+              <circle cx="11" cy="30" r="1.5"/>
+              <circle cx="30" cy="51" r="1.5"/>
+              <circle cx="55" cy="37" r="1.5"/>
+              <circle cx="21" cy="12" r="1.5"/>
+            </g>
+            <!-- 群星：企业如星、AI 点亮，大小不一，自左下向右上汇成星河 -->
+            <defs>
+              <path id="st" d="M0 -10 L2 -2 L10 0 L2 2 L0 10 L-2 2 L-10 0 L-2 -2 Z"/>
+            </defs>
+            <use href="#st" transform="translate(52 14) scale(1.05)" fill="#fff"/>
+            <use href="#st" transform="translate(38 23) scale(0.78)" fill="#fff"/>
+            <use href="#st" transform="translate(27 33) scale(0.60)" fill="#fff"/>
+            <use href="#st" transform="translate(17 45) scale(0.48)" fill="#fff"/>
+            <use href="#st" transform="translate(52 47) scale(0.40)" fill="#fff"/>
+            <use href="#st" transform="translate(13 23) scale(0.34)" fill="#fff"/>
+            <use href="#st" transform="translate(34 54) scale(0.28)" fill="#fff"/>
+          </svg>
+        </span>
+        <span class="brand-name">招商企业服务与智慧监管平台</span>
+      </div>
+      <div class="header-search">
+        <span class="hs-icon">⌕</span>
+        <input type="text" id="globalSearch" placeholder="搜索企业、政策、项目…" />
+      </div>
+      <div class="spacer"></div>
+      <button class="demo-btn" id="demoBtn">▶ 演示模式</button>
+      <button class="header-fullscreen-btn" id="fullscreenBtn">全屏</button>
+      <div class="header-divider"></div>
+      <div class="user-area">
+        <div class="user-avatar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="8" r="4" fill="#fff"/>
+            <path d="M4 20.5C4 16.4 7.6 13.8 12 13.8C16.4 13.8 20 16.4 20 20.5V21H4V20.5Z" fill="#fff"/>
+          </svg>
+        </div>
+        <div class="user-meta">
+          <div class="user-name">admin</div>
+          <div class="user-role">系统管理员</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- 顶栏下方：侧边导航 + 主区域 -->
+    <div class="app-body">
+      <!-- 小屏抽屉式导航的遮罩 -->
+      <div class="sidebar-mask" id="sidebarMask"></div>
+      <aside class="sidebar">
+        <nav class="nav" id="nav">
+          <div class="nav-group">招商总览</div>
+          <div class="nav-item" data-page="dashboard" title="招商驾驶舱"><span class="ico">⌂</span><span class="tx">招商驾驶舱</span></div>
+          <div class="nav-group">企业监管</div>
+          <div class="nav-item" data-page="enterprise" title="企业概况"><span class="ico">◫</span><span class="tx">企业概况</span></div>
+          <div class="nav-item" data-page="profile" title="企业画像"><span class="ico">◉</span><span class="tx">企业画像</span></div>
+          <div class="nav-item" data-page="risk" title="风险预警"><span class="ico">⚠</span><span class="tx">风险预警</span></div>
+          <div class="nav-item" data-page="graph" title="关系图谱"><span class="ico">⌬</span><span class="tx">关系图谱</span></div>
+          <div class="nav-group">招商引资</div>
+          <div class="nav-item" data-page="workbench" title="我的工作台"><span class="ico">☰</span><span class="tx">我的工作台</span></div>
+          <div class="nav-item" data-page="project" title="招商项目"><span class="ico">❖</span><span class="tx">招商项目</span></div>
+          <div class="nav-item" data-page="policy" title="政策服务"><span class="ico">✎</span><span class="tx">政策服务</span></div>
+          <div class="nav-group">智能应用</div>
+          <div class="nav-item" data-page="aidemo" title="招商智能体"><span class="ico">✦</span><span class="tx">招商智能体</span></div>
+        </nav>
+      </aside>
+
+      <!-- 主区域 -->
+      <section class="main">
+        <div class="page-head">
+          <span class="page-title" id="pageTitle">领导智能驾驶舱</span>
+        </div>
+        <div class="content" id="content"></div>
+      </section>
+    </div>
+
+    <!-- 抽屉容器（动态填充） -->
+    <div id="drawerWrap"></div>
+    <!-- 演示提示容器 -->
+    <div id="demoTipWrap"></div>
+  </div>
+
+  <!-- 登录页（复刻前后端分离项目登录页 + 背景插画：星河 · 数据网络 · 波澜） -->
+  <div id="loginScreen" class="login-page">
+    <svg class="login-bg" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <linearGradient id="lg-sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#E9F0FF" />
+          <stop offset="0.55" stop-color="#F4F7FE" />
+          <stop offset="1" stop-color="#ECF3FF" />
+        </linearGradient>
+        <linearGradient id="lg-blob" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#2563EB" stop-opacity="0.15" />
+          <stop offset="1" stop-color="#6366F1" stop-opacity="0.04" />
+        </linearGradient>
+        <linearGradient id="lg-wave" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#2563EB" stop-opacity="0.09" />
+          <stop offset="0.5" stop-color="#6366F1" stop-opacity="0.11" />
+          <stop offset="1" stop-color="#0EA5E9" stop-opacity="0.07" />
+        </linearGradient>
+        <radialGradient id="lg-glow" cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0" stop-color="#2563EB" stop-opacity="0.32" />
+          <stop offset="1" stop-color="#2563EB" stop-opacity="0" />
+        </radialGradient>
+        <path id="lg-star" d="M0 -10 L2 -2 L10 0 L2 2 L0 10 L-2 2 L-10 0 L-2 -2 Z" />
+      </defs>
+
+      <rect width="1440" height="900" fill="url(#lg-sky)" />
+
+      <!-- 柔光晕 -->
+      <circle cx="1185" cy="150" r="380" fill="url(#lg-blob)" />
+      <circle cx="150" cy="770" r="430" fill="url(#lg-blob)" />
+
+      <!-- 数据网络：政企数据联动 -->
+      <g stroke="#2563EB" stroke-opacity="0.13" fill="none" stroke-width="1.2">
+        <path d="M110 216 L318 138 L512 232 L742 152" />
+        <path d="M318 138 L426 322 L636 376 L742 152" />
+        <path d="M636 376 L872 316 L972 258 L1176 208 L1326 326" />
+        <path d="M972 258 L1054 424 L1226 516 L1326 326" />
+        <path d="M426 322 L560 512 L806 552 L1054 424" />
+        <path d="M806 552 L962 668 L1226 516" />
+      </g>
+      <g fill="#2563EB">
+        <circle cx="110" cy="216" r="5" opacity="0.32" />
+        <circle cx="318" cy="138" r="6.5" opacity="0.4" />
+        <circle cx="512" cy="232" r="4.5" opacity="0.3" />
+        <circle cx="742" cy="152" r="7" opacity="0.42" />
+        <circle cx="426" cy="322" r="5.5" opacity="0.34" />
+        <circle cx="636" cy="376" r="4.5" opacity="0.3" />
+        <circle cx="872" cy="316" r="4.5" opacity="0.3" />
+        <circle cx="972" cy="258" r="6" opacity="0.38" />
+        <circle cx="1176" cy="208" r="5" opacity="0.32" />
+        <circle cx="1326" cy="326" r="6.5" opacity="0.4" />
+        <circle cx="1054" cy="424" r="5" opacity="0.32" />
+        <circle cx="1226" cy="516" r="5.5" opacity="0.34" />
+        <circle cx="560" cy="512" r="5" opacity="0.3" />
+        <circle cx="806" cy="552" r="6" opacity="0.36" />
+        <circle cx="962" cy="668" r="4.5" opacity="0.28" />
+      </g>
+
+      <!-- 七星星河（大小不一，自左下向右上，呼应平台标识） -->
+      <g fill="#2563EB">
+        <circle cx="140" cy="318" r="34" fill="url(#lg-glow)" />
+        <circle cx="248" cy="268" r="26" fill="url(#lg-glow)" />
+        <circle cx="352" cy="224" r="30" fill="url(#lg-glow)" />
+        <circle cx="452" cy="182" r="26" fill="url(#lg-glow)" />
+        <circle cx="544" cy="146" r="30" fill="url(#lg-glow)" />
+        <circle cx="630" cy="112" r="26" fill="url(#lg-glow)" />
+        <circle cx="710" cy="84" r="34" fill="url(#lg-glow)" />
+        <use href="#lg-star" transform="translate(140 318) scale(0.62)" opacity="0.5" />
+        <use href="#lg-star" transform="translate(248 268) scale(0.44)" opacity="0.55" />
+        <use href="#lg-star" transform="translate(352 224) scale(0.55)" opacity="0.6" />
+        <use href="#lg-star" transform="translate(452 182) scale(0.4)" opacity="0.6" />
+        <use href="#lg-star" transform="translate(544 146) scale(0.52)" opacity="0.68" />
+        <use href="#lg-star" transform="translate(630 112) scale(0.4)" opacity="0.72" />
+        <use href="#lg-star" transform="translate(710 84) scale(0.68)" opacity="0.85" />
+      </g>
+
+      <!-- 底部波澜 -->
+      <path d="M0 716 C 240 656 480 776 760 726 C 1020 681 1240 756 1440 696 L1440 900 L0 900 Z" fill="url(#lg-wave)" />
+      <path d="M0 806 C 260 754 520 854 820 802 C 1100 757 1280 834 1440 782 L1440 900 L0 900 Z" fill="#2563EB" opacity="0.05" />
+    </svg>
+
+    <div class="login-card">
+      <!-- 上半：品牌区（标识 / 标题 / 星饰 / 副题） -->
+      <div class="login-brand">
+        <div class="login-logo">
+          <svg width="34" height="34" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <path id="lg-st" d="M0 -10 L2 -2 L10 0 L2 2 L0 10 L-2 2 L-10 0 L-2 -2 Z" />
+            </defs>
+            <use href="#lg-st" transform="translate(52 14) scale(1.05)" fill="#fff" />
+            <use href="#lg-st" transform="translate(38 23) scale(0.78)" fill="#fff" />
+            <use href="#lg-st" transform="translate(27 33) scale(0.6)" fill="#fff" />
+            <use href="#lg-st" transform="translate(17 45) scale(0.48)" fill="#fff" />
+            <use href="#lg-st" transform="translate(52 47) scale(0.4)" fill="#fff" />
+            <use href="#lg-st" transform="translate(13 23) scale(0.34)" fill="#fff" />
+            <use href="#lg-st" transform="translate(34 54) scale(0.28)" fill="#fff" />
+          </svg>
+        </div>
+        <h1 class="login-title">招商企业服务与智慧监管平台</h1>
+        <div class="login-stars">
+          <span>✦</span><span>✦</span><span>✦</span><span>✦</span><span>✦</span><span>✦</span><span>✦</span>
+        </div>
+        <p class="login-sub">Enterprise Full-Lifecycle Service &amp; AI Supervision</p>
+      </div>
+
+      <!-- 下半：登录表单（用户名 / 密码 / 登录按钮） -->
+      <div class="login-form">
+        <div class="field">
+          <label for="loginUser">用户名</label>
+          <input id="loginUser" type="text" placeholder="请输入用户名" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="loginPass">密码</label>
+          <input id="loginPass" type="password" placeholder="请输入密码" autocomplete="password" />
+        </div>
+
+        <button id="loginSubmit" class="login-btn" type="button">登 录</button>
+
+        <div id="loginError" class="login-error"></div>
+
+        <div class="login-hint">演示账号：<b>admin</b><span class="hint-sep">/</span>admin123</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/vendor/echarts.min.js"></script>
+  <script src="assets/vendor/jspdf.umd.min.js"></script>
+  <script src="assets/vendor/jspdf.plugin.autotable.min.js"></script>
+  <!-- 中文字体子集 pdf-font-zh.js 不在此静态引入：导出报告时由 profile.js 按需懒加载 -->
+  <script src="assets/data/mock.js"></script>
+  <script src="assets/js/common/utils.js"></script>
+  <script src="assets/js/common/state.js"></script>
+  <script src="assets/js/common/components.js"></script>
+  <script src="assets/js/pages/dashboard.js"></script>
+  <script src="assets/js/pages/enterprise.js"></script>
+  <script src="assets/js/pages/profile.js"></script>
+  <script src="assets/js/pages/risk.js"></script>
+  <script src="assets/js/pages/graph.js"></script>
+  <script src="assets/js/pages/workbench.js"></script>
+  <script src="assets/js/pages/project.js"></script>
+  <script src="assets/js/pages/policy.js"></script>
+  <script src="assets/js/pages/aidemo.js"></script>
+  <script src="assets/js/common/login.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

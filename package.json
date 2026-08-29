@@ -1,0 +1,16 @@
+{
+  "name": "zhaoshang-platform",
+  "version": "5.0.0",
+  "private": true,
+  "description": "招商企业服务与智慧监管平台 —— 统一工作流入口（demo 原型 + server/web 全栈）",
+  "scripts": {
+    "sync": "python tools/sync_engine.py",
+    "sync:check": "python tools/sync_engine.py --check",
+    "fixtures": "node tools/export_demo_fixtures.cjs",
+    "parity": "node tools/check_data_parity.cjs",
+    "test": "node tools/run_all.cjs",
+    "test:api": "node tools/verify_web_api.cjs",
+    "build:web": "cd web && npm run build-only",
+    "seed": "cd server && npm run db:seed"
+  }
+}
