@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
-const ROOT = 'D:/research/政府招商引资风险管理平台';
+const ROOT = path.join(__dirname, '..');
 const INDEX = path.join(ROOT, 'demo/index.html');
 const LOGIN = path.join(ROOT, 'demo/assets/js/common/login.js');
 

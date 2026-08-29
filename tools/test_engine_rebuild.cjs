@@ -1,5 +1,6 @@
+const path = require("path");
 global.window = {};
-require("D:/research/政府招商引资风险管理平台/web/public/engine/mock.js");
+require(path.join(__dirname, "..", "web", "public", "engine", "mock.js"));
 const M = global.window.MOCK;
 console.log("engine?", typeof global.window.MOCK_ENGINE);
 const ents = [{
