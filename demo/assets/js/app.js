@@ -598,6 +598,9 @@
       function updFsText() {
         var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
         fsBtn.innerHTML = fsEl ? '退出全屏' : '全屏';
+        // 全屏投影样式钩子：大屏排版、卡片对比度、高风险脉冲动效
+        var appEl = document.querySelector('.app');
+        if (appEl) appEl.classList.toggle('is-fullscreen', !!fsEl);
       }
       document.addEventListener('fullscreenchange', updFsText);
       document.addEventListener('webkitfullscreenchange', updFsText);

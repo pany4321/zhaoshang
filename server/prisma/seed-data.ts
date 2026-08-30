@@ -37,6 +37,7 @@ export async function seedDemoData(prisma: PrismaClient) {
 
   // 清库（按外键依赖倒序）
   await prisma.aiConversation.deleteMany()
+  await prisma.systemConfig.deleteMany()
   await prisma.riskEvent.deleteMany()
   await prisma.task.deleteMany()
   await prisma.project.deleteMany()

@@ -199,6 +199,7 @@
       '<div class="card mt">' +
         '<div class="card-title">风险事件清单' +
           '<span style="margin-left:12px;">' +
+            '<button class="btn sm" id="rfWeightCfg">⚙ 权重配置</button> ' +
             '<button class="btn sm primary" id="rfAddRisk">＋ 新建风险事件</button> ' +
             '<button class="btn sm" id="batchDispatch">批量派发</button> ' +
             '<button class="btn sm" id="exportRisk">⬇ 导出报表</button>' +
@@ -335,6 +336,7 @@
     U.$('#rfAddRisk').addEventListener('click', function () {
       openRiskForm();
     });
+    U.$('#rfWeightCfg').addEventListener('click', openWeightDrawer);
     // 批量派发
     U.$('#batchDispatch').addEventListener('click', function(){
       C.toast('已发起批量派发，共 0 条（演示）', 'info');
@@ -517,6 +519,126 @@
   }
 
   // ---- 新建风险表单 ----
+  // ============ 八大风险维度权重动态配置 ============
+  // 预设监管策略（8 维权重，合计 100%）：标准基线 / 强化履约 / 强化税务 / 司法信用严管
+  var WEIGHT_PRESETS = {
+    standard: { operation: 20, finance: 15, judicial: 15, credit: 15, tender: 10, tax: 10, perform: 10, ip: 5 },
+    perform:  { operation: 10, finance: 10, judicial: 10, credit: 10, tender: 5,  tax: 10, perform: 40, ip: 5 },
+    tax:      { operation: 15, finance: 15, judicial: 10, credit: 10, tender: 5,  tax: 35, perform: 5,  ip: 5 },
+    credit:   { operation: 10, finance: 10, judicial: 30, credit: 30, tender: 5,  tax: 5,  perform: 5,  ip: 5 }
+  };
+
+  function openWeightDrawer() {
+    var dims = M.RISK_DIMS;
+    var slidersHtml = dims.map(function (d) {
+      var pct = Math.round((d.weight || 0) * 100);
+      return '<div style="margin-bottom:14px;">' +
+        '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">' +
+          '<span style="font-weight:600;color:#334155;">' + U.esc(d.name) + '</span>' +
+          '<span class="rw-pct" data-key="' + d.key + '" style="font-weight:700;color:#2563EB;min-width:42px;text-align:right;">' + pct + '%</span>' +
+        '</div>' +
+        '<input type="range" min="0" max="60" step="5" value="' + pct + '" class="rw-slider" data-key="' + d.key + '" style="width:100%;cursor:pointer;"/>' +
+      '</div>';
+    }).join('');
+
+    var html =
+      '<div style="font-size:13px;">' +
+        '<div style="background:#F1F5F9;border-radius:8px;padding:10px 12px;margin-bottom:16px;">' +
+          '<div style="font-size:12px;color:#64748B;margin-bottom:8px;">预设监管策略（一键应用）：</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+            '<button class="btn sm rw-preset" data-p="standard">标准基线</button>' +
+            '<button class="btn sm rw-preset" data-p="perform">强化招商履约</button>' +
+            '<button class="btn sm rw-preset" data-p="tax">强化税务合规</button>' +
+            '<button class="btn sm rw-preset" data-p="credit">司法信用严管</button>' +
+          '</div>' +
+        '</div>' +
+        slidersHtml +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:12px;border-top:1px solid #E2E8F0;">' +
+          '<div style="font-size:13px;">权重总和：<b id="rwSum" style="font-size:15px;">100%</b> <span id="rwHint" style="font-size:11px;color:#94A3B8;"></span></div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">' +
+          '<button class="btn" id="rwCancel">取消</button>' +
+          '<button class="btn primary" id="rwApply">应用并重算</button>' +
+        '</div>' +
+      '</div>';
+
+    C.openDrawer({ title: '⚙ 八大风险维度权重模型配置', subtitle: '调整后全量重算 120 家企业风险评分', bodyHtml: html, width: 460 });
+
+    // openDrawer 同步渲染到 #drawerWrap，直接在其上绑定
+    var wrap = U.$('#drawerWrap');
+    function $(sel) { return wrap ? wrap.querySelector(sel) : null; }
+    function $$(sel) { return wrap ? wrap.querySelectorAll(sel) : []; }
+
+    function refreshSum() {
+      var sum = 0;
+      $$('.rw-slider').forEach(function (s) { sum += parseInt(s.value, 10) || 0; });
+      var sumEl = $('#rwSum'), hintEl = $('#rwHint'), applyBtn = $('#rwApply');
+      if (sumEl) {
+        sumEl.textContent = sum + '%';
+        sumEl.style.color = sum === 100 ? '#22C55E' : '#e03131';
+      }
+      if (hintEl) {
+        hintEl.textContent = sum === 100 ? '✓ 合计符合要求' : '（需调整至 100%，当前差 ' + (100 - sum) + '%）';
+        hintEl.style.color = sum === 100 ? '#22C55E' : '#e03131';
+      }
+      if (applyBtn) {
+        applyBtn.disabled = (sum !== 100);
+        applyBtn.style.opacity = sum === 100 ? '1' : '0.5';
+      }
+      return sum;
+    }
+
+    $$('.rw-slider').forEach(function (slider) {
+      slider.addEventListener('input', function () {
+        var pctEl = $('.rw-pct[data-key="' + this.dataset.key + '"]');
+        if (pctEl) pctEl.textContent = this.value + '%';
+        refreshSum();
+      });
+    });
+
+    $$('.rw-preset').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var preset = WEIGHT_PRESETS[this.dataset.p];
+        if (!preset) return;
+        dims.forEach(function (d) {
+          var val = preset[d.key];
+          var slider = $('.rw-slider[data-key="' + d.key + '"]');
+          var pctEl = $('.rw-pct[data-key="' + d.key + '"]');
+          if (slider) slider.value = val;
+          if (pctEl) pctEl.textContent = val + '%';
+        });
+        refreshSum();
+      });
+    });
+
+    var cancelBtn = $('#rwCancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', function () { C.closeDrawer(); });
+
+    var applyBtn = $('#rwApply');
+    if (applyBtn) applyBtn.addEventListener('click', function () {
+      if (refreshSum() !== 100) {
+        C.toast('权重总和必须等于 100%', 'warning');
+        return;
+      }
+      var newWeights = dims.map(function (d) {
+        var slider = $('.rw-slider[data-key="' + d.key + '"]');
+        return { key: d.key, name: d.name, weight: (parseInt(slider ? slider.value : '0', 10) || 0) / 100 };
+      });
+      // 1) 前端引擎热重算（demo 与全栈版均走 M.applyRiskWeights）
+      var ok = typeof M.applyRiskWeights === 'function' && M.applyRiskWeights(newWeights);
+      if (!ok) { C.toast('权重重算失败', 'error'); return; }
+      // 2) 全栈版同步落库（demo 无 APP.sync，自动跳过）
+      if (window.APP && window.APP.sync && window.APP.sync.riskWeightsUpdated) {
+        window.APP.sync.riskWeightsUpdated(newWeights);
+      }
+      C.closeDrawer();
+      C.toast('已应用新权重，全量重算完成', 'success');
+      APP.render();
+    });
+
+    refreshSum();
+  }
+
   function openRiskForm() {
     var dims = M.RISK_DIMS.filter(function(d){return d.weight>0;});
     var entOpts = M.ENTERPRISES.slice().sort(function(a,b){return a.name.localeCompare(b.name,'zh');}).map(function(e){

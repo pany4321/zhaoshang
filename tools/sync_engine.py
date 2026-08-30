@@ -7,8 +7,8 @@ demo/ 是唯一设计基准；web/public/engine/ 中"可直拷"的引擎文件�
 有意不同步（分化 / 生成物，不在直拷范围）：
   mock.js       由 tools/build_engine_mock.py 锚点式再生（非直拷），本工具会代跑
   app-core.js   源自 demo/assets/js/app.js 的前后端分离改写（路由由 Vue Router 托管）
-  style.css     web 版壳层样式由 MainLayout.vue 承载，两版有意分化
   vendor/       web 独立的第三方库目录
+  注：style.css 平台视觉由 engine/style.css 提供（Vue 壳层只有少量 scoped 样式），已纳入直拷。
 
 用法：
   python tools/sync_engine.py            # 同步（覆盖不一致文件，并再生 mock.js）
@@ -22,19 +22,21 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, 'demo', 'assets', 'js')
+ASSETS = os.path.join(ROOT, 'demo', 'assets')
 DST = os.path.join(ROOT, 'web', 'public', 'engine')
 
 PAGES = [
     'dashboard.js', 'enterprise.js', 'profile.js', 'risk.js', 'graph.js',
     'workbench.js', 'project.js', 'policy.js', 'aidemo.js',
 ]
-# demo/assets/js 下相对路径 → web/public/engine/ 下相对路径
+# (demo/assets 下相对路径, web/public/engine/ 下相对路径)
+# style.css：平台视觉全部由 engine style.css 提供（Vue 壳层另有少量 scoped 样式），纳入直拷。
 COPY_FILES = [
-    ('common/utils.js', 'utils.js'),
-    ('common/state.js', 'state.js'),
-    ('common/components.js', 'components.js'),
-] + [('pages/' + p, 'pages/' + p) for p in PAGES]
+    ('js/common/utils.js', 'utils.js'),
+    ('js/common/state.js', 'state.js'),
+    ('js/common/components.js', 'components.js'),
+    ('css/style.css', 'style.css'),
+] + [('js/pages/' + p, 'pages/' + p) for p in PAGES]
 
 
 def main():
@@ -45,7 +47,7 @@ def main():
     changed, same = [], []
     missing_src = []
     for src_rel, dst_rel in COPY_FILES:
-        s = os.path.join(SRC, src_rel.replace('/', os.sep))
+        s = os.path.join(ASSETS, src_rel.replace('/', os.sep))
         d = os.path.join(DST, dst_rel.replace('/', os.sep))
         if not os.path.exists(s):
             missing_src.append(src_rel)

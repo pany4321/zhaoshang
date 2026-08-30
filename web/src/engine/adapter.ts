@@ -508,5 +508,8 @@ export function mapBootstrap(raw: BootstrapData) {
     return prioOrder[a.priority] - prioOrder[b.priority]
   })
 
-  return { ENTERPRISES: enterprises, RISK_EVENTS: events, PROJECTS: projects, TASKS: tasks, POLICY_LIB: policies }
+  return {
+    ENTERPRISES: enterprises, RISK_EVENTS: events, PROJECTS: projects, TASKS: tasks, POLICY_LIB: policies,
+    riskWeights: (raw as any).riskWeights || null,
+  }
 }

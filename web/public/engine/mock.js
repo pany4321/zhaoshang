@@ -69,9 +69,11 @@
     blue: { name: "关注风险", color: "#1c7ed6", bg: "rgba(28,126,214,.12)" },
   };
 
-  function calcRiskScore(risks) {
+  // customDims：传入外部维度权重数组时按其计算，否则用当前 RISK_DIMS
+  function calcRiskScore(risks, customDims) {
+    var dims = customDims || RISK_DIMS;
     var s = 0;
-    RISK_DIMS.forEach(function (d) {
+    dims.forEach(function (d) {
       if (d.weight > 0 && risks[d.key] != null) s += d.weight * risks[d.key];
     });
     return Math.round(s);
@@ -81,6 +83,41 @@
     if (score >= 45) return "orange";
     if (score >= 25) return "yellow";
     return "blue";
+  }
+
+  // 动态调整八大风险维度权重并全量热重算：
+  // 更新 RISK_DIMS 闭包权重 → 重算 120 家企业 score/level → 重算派生结构并回写 global.MOCK。
+  // newWeights: [{ key, name, weight }]（8 维，weight 合计≈1.0）
+  function applyRiskWeights(newWeights) {
+    if (!newWeights || !newWeights.length) return false;
+    var applied = false;
+    newWeights.forEach(function (nw) {
+      for (var i = 0; i < RISK_DIMS.length; i++) {
+        if (RISK_DIMS[i].key === nw.key && typeof nw.weight === "number") {
+          RISK_DIMS[i].weight = nw.weight;
+          if (nw.name) RISK_DIMS[i].name = nw.name;
+          applied = true;
+        }
+      }
+    });
+    if (!applied) return false;
+    ENTERPRISES.forEach(function (e) {
+      if (e.risks) {
+        e.riskScore = calcRiskScore(e.risks);
+        e.riskLevel = scoreToLevel(e.riskScore);
+      }
+    });
+    // 重算派生结构（聚合/日报/图谱等），回写导出对象
+    var d = deriveAll(ENTERPRISES, RISK_EVENTS, PROJECTS, TASKS, POLICY_LIB, LR);
+    var M = global.MOCK || {};
+    M.RISK_DIMS = RISK_DIMS;
+    M.DISTRICT_DATA = d.DISTRICT_DATA;
+    M.INDUSTRIES = d.INDUSTRIES;
+    M.OVERVIEW = d.OVERVIEW;
+    M.riskStats = d.riskStats;
+    M.AI_DAILY = d.AI_DAILY;
+    M.GRAPH = d.GRAPH;
+    return true;
   }
 
   // 区县
@@ -3244,6 +3281,7 @@
     POLICY_REDEEM: _D.POLICY_REDEEM,
     calcRiskScore: calcRiskScore,
     scoreToLevel: scoreToLevel,
+    applyRiskWeights: applyRiskWeights,
     entById: entById,
     industryName: industryName
   };
@@ -3302,6 +3340,16 @@
       replaceInPlace(PROJECTS, raw.PROJECTS);
       replaceInPlace(TASKS, raw.TASKS);
       replaceInPlace(POLICY_LIB, raw.POLICY_LIB);
+      // 服务端下发的自定义风险权重：更新维度权重后再 enrich/deriveAll
+      if (Array.isArray(raw.riskWeights) && raw.riskWeights.length) {
+        raw.riskWeights.forEach(function (nw) {
+          for (var wi = 0; wi < RISK_DIMS.length; wi++) {
+            if (RISK_DIMS[wi].key === nw.key && typeof nw.weight === "number") {
+              RISK_DIMS[wi].weight = nw.weight;
+            }
+          }
+        });
+      }
       var E = ENTERPRISES;
       var EV = RISK_EVENTS;
       var PJ = PROJECTS;
@@ -3316,6 +3364,7 @@
       M.PROJECTS = PJ;
       M.TASKS = TK;
       M.POLICY_LIB = PL;
+      M.RISK_DIMS = RISK_DIMS;
       M.DISTRICT_DATA = d.DISTRICT_DATA;
       M.GEO_QINGYANG = d.GEO_QINGYANG;
       M.DATA_SOURCES = d.DATA_SOURCES;

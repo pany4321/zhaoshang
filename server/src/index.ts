@@ -57,8 +57,10 @@ import aiRoutes from './routes/ai.js'
 import dictRoutes from './routes/dict.js'
 import searchRoutes from './routes/search.js'
 import bootstrapRoutes from './routes/bootstrap.js'
+import configRoutes from './routes/config.js'
 
 app.register(authRoutes,       { prefix: '/api/auth' })
+app.register(configRoutes,     { prefix: '/api/config' })
 app.register(dictRoutes,       { prefix: '/api/dict' })
 app.register(bootstrapRoutes,  { prefix: '/api/bootstrap' })
 app.register(dashboardRoutes,  { prefix: '/api/dashboard' })

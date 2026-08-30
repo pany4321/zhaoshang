@@ -208,6 +208,14 @@ model Policy {
   createdAt   DateTime @default(now())
 }
 
+// ============ 系统配置（键值） ============
+
+model SystemConfig {
+  key       String   @id // 如 'risk_weights'
+  value     String   // JSON 字符串
+  updatedAt DateTime @updatedAt
+}
+
 // ============ AI 对话（智能体） ============
 
 model AiConversation {

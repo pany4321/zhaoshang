@@ -586,6 +586,8 @@
       function updFsText() {
         var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
         fsBtn.innerHTML = fsEl ? '退出全屏' : '全屏';
+        var appEl = document.querySelector('.app');
+        if (appEl) appEl.classList.toggle('is-fullscreen', !!fsEl);
       }
       document.addEventListener('fullscreenchange', updFsText);
       document.addEventListener('webkitfullscreenchange', updFsText);

@@ -6,7 +6,7 @@ import { ok } from '../utils/helper.js'
 // 相比逐页多次请求，单一接口可保证同一时刻的数据一致性（聚合/汇总与明细天然对账）。
 export default async function (fastify: FastifyInstance) {
   fastify.get('/', async () => {
-    const [districts, industries, enterprises, riskEvents, projects, tasks, policies] =
+    const [districts, industries, enterprises, riskEvents, projects, tasks, policies, weightCfg] =
       await Promise.all([
         prisma.district.findMany({ orderBy: { sort: 'asc' } }),
         prisma.industry.findMany({ orderBy: { sort: 'asc' } }),
@@ -40,6 +40,7 @@ export default async function (fastify: FastifyInstance) {
           include: { industry: { select: { id: true, name: true } } },
           orderBy: { id: 'asc' },
         }),
+        prisma.systemConfig.findUnique({ where: { key: 'risk_weights' } }),
       ])
 
     return ok({
@@ -50,6 +51,7 @@ export default async function (fastify: FastifyInstance) {
       projects,
       tasks,
       policies,
+      riskWeights: weightCfg ? JSON.parse(weightCfg.value) : null,
     })
   })
 }

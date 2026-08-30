@@ -84,6 +84,65 @@ async function api(pathname, opts = {}, token) {
     `server=${tasksAfter.length} baseline=${fixtures.tasks.length}`);
   check('重置后脏数据清除', !tasksAfter.some(t => (t.title || '').indexOf('DIRTY-VERIFY-WEB-API') >= 0));
 
+  // 6. 风险权重配置：默认 8 维 → 非法权重拦截 → 合法权重落库 → bootstrap 下发 → 恢复默认
+  const gw0 = await api('/api/config/risk-weights');
+  check('读取默认风险权重 8 维', gw0.status === 200 && Array.isArray(gw0.body.data) && gw0.body.data.length === 8,
+    `status=${gw0.status}`);
+  const badPut = await api('/api/config/risk-weights', {
+    method: 'PUT',
+    body: JSON.stringify([{ key: 'op', weight: 0.5 }]),
+  }, token);
+  check('非法权重（非 8 维）被 400 拦截', badPut.status === 400, `status=${badPut.status}`);
+  const badSum = await api('/api/config/risk-weights', {
+    method: 'PUT',
+    body: JSON.stringify([
+      { key: 'operation', name: '经营风险', weight: 0.4 },
+      { key: 'finance', name: '财务风险', weight: 0.2 },
+      { key: 'judicial', name: '司法风险', weight: 0.1 },
+      { key: 'credit', name: '信用风险', weight: 0.1 },
+      { key: 'tender', name: '招投标风险', weight: 0.05 },
+      { key: 'tax', name: '税务风险', weight: 0.05 },
+      { key: 'perform', name: '招商履约风险', weight: 0.05 },
+      { key: 'ip', name: '知识产权风险', weight: 0.0 },
+    ]),
+  }, token);
+  check('权重总和非 100%（合计 95%）被 400 拦截', badSum.status === 400, `status=${badSum.status}`);
+  const performWeights = [
+    { key: 'operation', name: '经营风险', weight: 0.10 },
+    { key: 'finance', name: '财务风险', weight: 0.10 },
+    { key: 'judicial', name: '司法风险', weight: 0.10 },
+    { key: 'credit', name: '信用风险', weight: 0.10 },
+    { key: 'tender', name: '招投标风险', weight: 0.05 },
+    { key: 'tax', name: '税务风险', weight: 0.10 },
+    { key: 'perform', name: '招商履约风险', weight: 0.40 },
+    { key: 'ip', name: '知识产权风险', weight: 0.05 },
+  ];
+  const okPut = await api('/api/config/risk-weights', {
+    method: 'PUT',
+    body: JSON.stringify(performWeights),
+  }, token);
+  check('合法权重落库成功', okPut.status === 200 && okPut.body.code === 0, `status=${okPut.status}`);
+  const gw1 = await api('/api/config/risk-weights');
+  const performDim = (gw1.body.data || []).find(w => w.key === 'perform');
+  check('落库后读取到履约权重 40%', !!performDim && performDim.weight === 0.4,
+    `perform=${performDim ? performDim.weight : 'missing'}`);
+  const bs4 = await api('/api/bootstrap', {}, token);
+  const sentW = (bs4.body.data || {}).riskWeights;
+  check('bootstrap 下发自定义权重', Array.isArray(sentW) && sentW.length === 8,
+    `riskWeights=${Array.isArray(sentW) ? sentW.length : sentW}`);
+  // 恢复默认权重，避免污染后续演示数据
+  const defaultWeights = [
+    { key: 'operation', name: '经营风险', weight: 0.20 },
+    { key: 'finance', name: '财务风险', weight: 0.15 },
+    { key: 'judicial', name: '司法风险', weight: 0.15 },
+    { key: 'credit', name: '信用风险', weight: 0.15 },
+    { key: 'tender', name: '招投标风险', weight: 0.10 },
+    { key: 'tax', name: '税务风险', weight: 0.10 },
+    { key: 'perform', name: '招商履约风险', weight: 0.10 },
+    { key: 'ip', name: '知识产权风险', weight: 0.05 },
+  ];
+  await api('/api/config/risk-weights', { method: 'PUT', body: JSON.stringify(defaultWeights) }, token);
+
   console.log('\n========================================');
   if (fails) {
     console.log(`结果：${fails} 项失败`);

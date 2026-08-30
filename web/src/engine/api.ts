@@ -40,6 +40,11 @@ export function createPolicy(d: Record<string, unknown>) {
   return request.post('/policy', d)
 }
 
+// 风险维度权重配置（8 维，合计 100%）
+export function updateRiskWeights(weights: { key: string; name: string; weight: number }[]) {
+  return request.put('/config/risk-weights', weights)
+}
+
 // AI 会话持久化
 export function fetchAiHistory(agentType: string) {
   return request.get<any, { messages: any[] }>(`/ai/history/${agentType}`)

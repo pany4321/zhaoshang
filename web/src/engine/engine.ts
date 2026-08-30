@@ -4,7 +4,7 @@
 // 引擎文件全部位于 /engine（public 目录，浏览器直接加载，不经打包）。
 // ============================================================
 import { ref } from 'vue'
-import { fetchBootstrap, dispatchRisk, startTask, finishTask, createTask, createEnterprise, createProject, saveProjectNote, createPolicy, fetchAiHistory, syncAiConversation } from './api'
+import { fetchBootstrap, dispatchRisk, startTask, finishTask, createTask, createEnterprise, createProject, saveProjectNote, createPolicy, fetchAiHistory, syncAiConversation, updateRiskWeights } from './api'
 import { mapBootstrap } from './adapter'
 
 declare global {
@@ -146,6 +146,9 @@ function installSync() {
     },
     aiConversation(agent: string, msgs: any[]) {
       queueAiSync(agent, msgs)
+    },
+    riskWeightsUpdated(weights: { key: string; name: string; weight: number }[]) {
+      updateRiskWeights(weights).catch(() => {})
     },
   }
 }

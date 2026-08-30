@@ -70,6 +70,7 @@ engine_tail = """
     POLICY_REDEEM: _D.POLICY_REDEEM,
     calcRiskScore: calcRiskScore,
     scoreToLevel: scoreToLevel,
+    applyRiskWeights: applyRiskWeights,
     entById: entById,
     industryName: industryName
   };
@@ -128,6 +129,16 @@ engine_tail = """
       replaceInPlace(PROJECTS, raw.PROJECTS);
       replaceInPlace(TASKS, raw.TASKS);
       replaceInPlace(POLICY_LIB, raw.POLICY_LIB);
+      // 服务端下发的自定义风险权重：更新维度权重后再 enrich/deriveAll
+      if (Array.isArray(raw.riskWeights) && raw.riskWeights.length) {
+        raw.riskWeights.forEach(function (nw) {
+          for (var wi = 0; wi < RISK_DIMS.length; wi++) {
+            if (RISK_DIMS[wi].key === nw.key && typeof nw.weight === "number") {
+              RISK_DIMS[wi].weight = nw.weight;
+            }
+          }
+        });
+      }
       var E = ENTERPRISES;
       var EV = RISK_EVENTS;
       var PJ = PROJECTS;
@@ -142,6 +153,7 @@ engine_tail = """
       M.PROJECTS = PJ;
       M.TASKS = TK;
       M.POLICY_LIB = PL;
+      M.RISK_DIMS = RISK_DIMS;
       M.DISTRICT_DATA = d.DISTRICT_DATA;
       M.GEO_QINGYANG = d.GEO_QINGYANG;
       M.DATA_SOURCES = d.DATA_SOURCES;
