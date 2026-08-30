@@ -61,6 +61,10 @@
     { key: "perform", name: "招商履约风险", weight: 0.1 },
     { key: "ip", name: "知识产权风险", weight: 0.05 },
   ];
+  // 出厂权重快照（与初始 RISK_DIMS 严格同源）："默认权重"预设与恢复出厂的基准，运行时勿改
+  var RISK_DIMS_DEFAULT = RISK_DIMS.map(function (d) {
+    return { key: d.key, name: d.name, weight: d.weight };
+  });
 
   var LEVELS = {
     red: { name: "重大风险", color: "#e03131", bg: "rgba(224,49,49,.12)" },
@@ -3282,6 +3286,11 @@
     calcRiskScore: calcRiskScore,
     scoreToLevel: scoreToLevel,
     applyRiskWeights: applyRiskWeights,
+    defaultRiskWeights: function () {
+      return RISK_DIMS_DEFAULT.map(function (d) {
+        return { key: d.key, name: d.name, weight: d.weight };
+      });
+    },
     entById: entById,
     industryName: industryName
   };

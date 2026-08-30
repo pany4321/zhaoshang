@@ -71,6 +71,11 @@ engine_tail = """
     calcRiskScore: calcRiskScore,
     scoreToLevel: scoreToLevel,
     applyRiskWeights: applyRiskWeights,
+    defaultRiskWeights: function () {
+      return RISK_DIMS_DEFAULT.map(function (d) {
+        return { key: d.key, name: d.name, weight: d.weight };
+      });
+    },
     entById: entById,
     industryName: industryName
   };

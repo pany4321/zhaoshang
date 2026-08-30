@@ -522,9 +522,8 @@
 
   // ---- 新建风险表单 ----
   // ============ 八大风险维度权重动态配置 ============
-  // 预设权重（8 维，合计 100%）：默认权重 / 强化履约 / 强化税务 / 强化司法信用
+  // 预设权重（8 维，合计 100%）：默认权重（取自引擎出厂快照）/ 强化履约 / 强化税务 / 强化司法信用
   var WEIGHT_PRESETS = {
-    standard: { operation: 20, finance: 15, judicial: 15, credit: 15, tender: 10, tax: 10, perform: 10, ip: 5 },
     perform:  { operation: 10, finance: 10, judicial: 10, credit: 10, tender: 5,  tax: 10, perform: 40, ip: 5 },
     tax:      { operation: 15, finance: 15, judicial: 10, credit: 10, tender: 5,  tax: 35, perform: 5,  ip: 5 },
     credit:   { operation: 10, finance: 10, judicial: 30, credit: 30, tender: 5,  tax: 5,  perform: 5,  ip: 5 }
@@ -600,7 +599,17 @@
 
     $$('.rw-preset').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        var preset = WEIGHT_PRESETS[this.dataset.p];
+        var p = this.dataset.p;
+        // 「默认权重」取引擎出厂快照（与初始化 RISK_DIMS 严格同源），其余走预设表
+        var preset;
+        if (p === 'standard') {
+          preset = {};
+          (M.defaultRiskWeights ? M.defaultRiskWeights() : []).forEach(function (d) {
+            preset[d.key] = Math.round(d.weight * 100);
+          });
+        } else {
+          preset = WEIGHT_PRESETS[p];
+        }
         if (!preset) return;
         dims.forEach(function (d) {
           var val = preset[d.key];
