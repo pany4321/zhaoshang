@@ -250,8 +250,8 @@
       "</div>" +
       '<div style="margin-top:12px;font-size:11px;color:#94A3B8;" id="gStats"></div>' +
       "</div>" +
-      // 右侧图谱主卡
-      '<div class="col card">' +
+      // 右侧图谱主卡（纵向 flex：画布填满卡片剩余高度，与左侧导航卡同高不留底部空带）
+      '<div class="col card" style="display:flex;flex-direction:column;">' +
       '<div class="card-title">' +
       "<span>企业关联关系图谱</span>" +
       '<span style="margin-left:auto;display:flex;align-items:center;gap:8px;">' +
@@ -273,7 +273,7 @@
       '<button class="btn sm" id="gExportBtn">导出图片</button>' +
       "</span>" +
       "</div>" +
-      '<div id="c_graph" class="chart" style="height:660px;position:relative;"></div>' +
+      '<div id="c_graph" class="chart" style="flex:1;min-height:660px;position:relative;"></div>' +
       "</div>" +
       "</div>";
 
@@ -357,6 +357,7 @@
     U.$("#gResetBtn").addEventListener("click", function () {
       isolateNodeId = null;
       focusNodeId = null;
+      graphZoom = 1; // 缩放一并还原，保证重置后回到默认视图（贴近上端、不拉伸）
       riskMode = false;
       U.$("#gRiskMode").checked = false;
       linkColorOn = true;
@@ -1623,13 +1624,21 @@
     }
 
     // —— 6. 不同布局的配置 ——
-    // 图例高度约 30px，图谱内容从 top 开始；整体中心略下移更美观
-    var seriesTop = 30;
-    var seriesBottom = 32; // 底部留更多空间，中心自然下移
-    var centerOffsetY = 20; // 环形/树形手动布局的额外下移量
+    // 图形区贴近画布上端（图例下方开始）、高度固定不铺满、左右居中。
+    // graph 视图会把「节点坐标包围盒」各向异性拉伸填满绘图区（getLayoutRect 在
+    // 四边都给定时忽略 aspect）。力导向坐标为 NaN、包围盒退化为绘图区本身，
+    // 变换恒等；环形/树形用 layout:'none' + 四个隐形锚点把包围盒钉成图形区，
+    // 同样得到恒等变换——预排坐标即最终像素，圆环/放射不会被拉成椭圆。
+    var chartEl = U.$("#c_graph");
+    var cw = chartEl ? chartEl.clientWidth : 800;
+    var ch = chartEl ? chartEl.clientHeight : 560;
+    var BAND_TOP = 40; // 图例高约 30px，图形区从其下方开始，不遮挡图例文字
+    var BAND_H = Math.max(200, Math.min(600, ch - BAND_TOP - 24)); // 图形区高度固定，不随画布铺满
+    var seriesTop = BAND_TOP;
+    var seriesBottom = Math.max(24, ch - BAND_TOP - BAND_H);
     var seriesOpt = {
       type: "graph",
-      layout: currentLayout === "tree" ? "force" : currentLayout,
+      layout: currentLayout === "force" ? "force" : "none",
       roam: "move",   // 内置只保留平移；缩放手写控制，以便调灵敏度
       draggable: true,
       top: seriesTop,
@@ -1645,15 +1654,10 @@
       emphasis: { focus: "adjacency", lineStyle: { width: 3 } },
     };
 
-    // 计算 series 区域中心点（用于 layout:none 时的坐标平移）
-    var chartEl = U.$("#c_graph");
-    var cw = chartEl ? chartEl.clientWidth : 800;
-    var ch = chartEl ? chartEl.clientHeight : 560;
-    // series 区域：left/right 各 24，top=seriesTop，bottom=seriesBottom
-    var seriesW = cw - 48;
-    var seriesH = ch - seriesTop - seriesBottom;
-    var cx = seriesW / 2;
-    var cy = seriesH / 2 + centerOffsetY;
+    // 图形区中心（画布绝对坐标，与力引导重力中心一致）：横向画布中线，纵向图形区中心
+    var cx = cw / 2;
+    var cy = BAND_TOP + BAND_H / 2;
+    var bandR = Math.min(cw - 48, BAND_H) / 2;
 
     if (currentLayout === "force") {
       seriesOpt.force = {
@@ -1662,13 +1666,9 @@
         gravity: 0.06,
       };
     } else if (currentLayout === "circular") {
-      seriesOpt.force = null;
-      seriesOpt.circular = { rotateLabel: false };
-      seriesOpt.layout = "none";
-      // 环形坐标：半径自适应，中心为 series 区域中心
+      // 环形：正圆排布（坐标即像素，不再被视口拉伸），半径不随画布铺满
       var n = nodes.length;
-      var maxR = Math.min(seriesW, seriesH) / 2 - 30;
-      var r = Math.min(maxR, n > 20 ? 240 : n > 10 ? 180 : 120);
+      var r = Math.min(bandR - 60, n > 20 ? 240 : n > 10 ? 180 : 120);
       nodes.forEach(function (nd, i) {
         var angle = (2 * Math.PI * i) / n - Math.PI / 2;
         nd.x = cx + r * Math.cos(angle);
@@ -1676,9 +1676,7 @@
         nd.fixed = true;
       });
     } else if (currentLayout === "tree") {
-      // 树形：放射状层次布局（BFS 分层 + 固定坐标 + layout:none）
-      seriesOpt.force = null;
-      seriesOpt.layout = "none";
+      // 树形：放射状层次布局（BFS 分层 + 固定坐标，坐标即像素不被拉伸）
 
       // 构建邻接表
       var adj = {};
@@ -1732,10 +1730,10 @@
         }
       });
 
-      // 计算每层半径（自适应容器大小）
-      var maxR = Math.min(seriesW, seriesH) / 2 - 20;
+      // 计算每层半径（不铺满图形区，但用足顶部图例下方/底部标签上方的安全预算）
+      var maxR = bandR - 40;
       var layerCount = layers.length;
-      var stepR = Math.min(90, maxR / Math.max(1, layerCount));
+      var stepR = Math.min(110, maxR / Math.max(1, layerCount - 1));
       var layerRadius = [];
       for (var li = 0; li < layerCount; li++) {
         layerRadius[li] = li * stepR;
@@ -1763,6 +1761,34 @@
           idMap[nid].fixed = true;
         });
       });
+    }
+
+    // 隐形锚点（仅环形/树形）：把节点包围盒钉成图形区 → 视图变换恒等，
+    // 坐标即所见像素；symbolSize 近 0 不可交互，不参与统计/图例/圈层。
+    if (currentLayout !== "force") {
+      var bandRight = 24 + (cw - 48);
+      var bandBottom = seriesTop + BAND_H;
+      var mkAnchor = function (id, x, y) {
+        return {
+          id: id,
+          name: "",
+          x: x,
+          y: y,
+          fixed: true,
+          draggable: false,
+          symbolSize: 0.1,
+          aux: "其他",
+          itemStyle: { opacity: 0 },
+          label: { show: false },
+        };
+      };
+      nodes = nodes.concat([
+        mkAnchor("__anchor_tl", 24, seriesTop),
+        mkAnchor("__anchor_tr", bandRight, seriesTop),
+        mkAnchor("__anchor_bl", 24, bandBottom),
+        mkAnchor("__anchor_br", bandRight, bandBottom),
+      ]);
+      seriesOpt.data = nodes;
     }
 
     currentChart = mkChart(U.$("#c_graph"), {
