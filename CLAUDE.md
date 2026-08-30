@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. It is kept in sync with `AGENTS.md` (the tool-agnostic copy for other AI agents) — update both when either changes.
 
 ## What this repository is
 
@@ -18,7 +18,7 @@ The V5 full-stack version (`server/` + `web/`) replicates all 9 demo pages 1:1: 
 - `docs/archive/` — historical documents kept for reference only (V4 improvement outline and the superseded V3.1 / V4.0 / V5.0 requirement drafts). The current source of truth is `招商企业服务与智慧监管平台_系统需求分析说明书_V5.0_深化版.md` at the repo root.
 - `tools/make_pdf_font.py` — generates the Chinese font subset for text-mode PDF export.
 - `tools/verify_pdf_export.js` — JSDOM-based smoke test for text-mode PDF export.
-- `tools/sync_engine.py` — syncs shared engine files (`utils/state/components/pages/*.js`) from `demo/` to `web/public/engine/` and re-runs the mock generator; `--check` verifies only (exit 1 on drift). Not synced (intentionally diverged/generated): `mock.js` (generated), `app-core.js` (Vue-Router-hosted rewrite of demo `app.js`), `style.css` (shell styles live in MainLayout.vue), `vendor/`. Run after any demo engine change.
+- `tools/sync_engine.py` — syncs shared engine files (`utils/state/components/pages/*.js`, `style.css`) from `demo/` to `web/public/engine/` and re-runs the mock generator; `--check` verifies only (exit 1 on drift). Not synced (intentionally diverged/generated): `mock.js` (generated), `app-core.js` (Vue-Router-hosted rewrite of demo `app.js`), `vendor/`. Run after any demo engine change.
 - `tools/export_demo_fixtures.cjs` — exports demo MOCK entities to `server/prisma/demo-fixtures.json` (server-shaped: reverse dimension/status/type maps, 9 risk dims). Run after any demo mock.js change, before `npm run db:seed`.
 - `tools/check_data_parity.cjs` — parity check: demo MOCK vs `demo-fixtures.json` (entity counts, ID sets, name order, risk distributions, referential integrity). Offline; in run_all.
 - `tools/verify_web_api.cjs` — web API regression against a running server (login → bootstrap-vs-fixtures counts → dirty task → reset-demo restores baseline → 401 without auth). Requires `cd server && npm run dev`; run_all skips it when the server is down.
@@ -46,11 +46,11 @@ Open `demo/index.html` directly in a browser (Chrome/Edge). ECharts is vendored 
 | --- | --- |
 | `demo/assets/js/**`（页面与公共模块） | `npm run sync` → `npm test` → `npm run build:web` |
 | `demo/assets/data/mock.js` | `npm run sync`（内含 mock.js 再生）→ `npm run fixtures` → `npm test` → `npm run build:web` |
-| `demo/assets/css/style.css` | 手工同步 web 壳层样式（两版有意分化，无自动同步）→ `npm test` → `npm run build:web` |
+| `demo/assets/css/style.css` | `npm run sync`（已纳入直拷）→ `npm test` → `npm run build:web` |
 | `demo/index.html`、`demo/assets/js/common/login.js` | `npm test`（verify_login 覆盖登录门禁） |
 | 区划地图边界重绘（GEO_QINGYANG） | `python tools/update_geo.py` 或 `update_geo_dense.py`（写 demo mock.js）→ 按 mock.js 行全链 |
 | PDF 字体子集来源或字符集变化 | `python tools/make_pdf_font.py` → `node tools/verify_pdf_export.js` → `npm test` |
-| `web/public/engine/**` | **原则上禁止直改**——回 demo 改后走 sync（仅 `app-core.js`、`style.css`、`vendor/` 属分化例外；直改后 `npm test` + `npm run build:web`） |
+| `web/public/engine/**` | **原则上禁止直改**——回 demo 改后走 sync（仅 `app-core.js`、`vendor/` 属分化例外；直改后 `npm test` + `npm run build:web`） |
 | `web/src/**`（壳层 / engine.ts / adapter.ts） | `npm run build:web` → `npm test`（server 运行时自动含接口回归）；adapter 字段映射变更时另跑 `npm run fixtures` → `npm run parity` |
 | `server/prisma/schema.prisma` | `db:migrate` → 对照 `export_demo_fixtures.cjs` 的字段映射 → `npm run fixtures` → `npm run seed` → `npm run test:api` |
 | `server/src/**`（接口/服务） | `npm test`（server 运行时 verify_web_api 自动包含；未运行则 `npm run test:api`） |
