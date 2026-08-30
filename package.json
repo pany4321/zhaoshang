@@ -10,7 +10,7 @@
     "parity": "node tools/check_data_parity.cjs",
     "test": "node tools/run_all.cjs",
     "test:api": "node tools/verify_web_api.cjs",
-    "build:web": "cd web && npm run build-only",
+    "build:web": "cd web && npm run build",
     "seed": "cd server && npm run db:seed"
   },
   "devDependencies": {

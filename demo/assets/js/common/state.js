@@ -50,6 +50,15 @@
   }
   function mkChart(dom, opt, initOpts) {
     if (!dom) return null;
+    // 统一 tooltip 主题（各页显式配置的字段优先，仅补默认外观）
+    var tip = opt && opt.tooltip;
+    if (tip) {
+      if (tip.backgroundColor === undefined) tip.backgroundColor = 'rgba(15, 23, 42, 0.92)';
+      if (tip.borderWidth === undefined) tip.borderWidth = 0;
+      if (tip.padding === undefined) tip.padding = [8, 12];
+      if (tip.textStyle === undefined) tip.textStyle = { color: '#F8FAFC', fontSize: 12 };
+      if (tip.extraCssText === undefined) tip.extraCssText = 'border-radius:8px;box-shadow:0 6px 18px rgba(15,23,42,0.25);';
+    }
     var c = echarts.init(dom, null, initOpts);
     c.setOption(opt);
     liveCharts.push(c);

@@ -9,7 +9,7 @@ Deliverables folder for the《招商企业服务与智慧监管平台》(Enterpr
 - `招商企业服务与智慧监管平台_系统需求分析说明书_V5.0_深化版.md` — the requirements spec (V5.0 深化版, **current source of truth**). Supersedes the older V3.1 / V4.0 / V5.0 drafts. Authoritative for business logic: an **8-dimension** weighted risk model and its weights, red/orange/yellow/blue risk levels, user roles, AI capability matrix, data architecture. (The earlier V3.1 draft described a "nine-dimension" model; the shipped demo/engine uses 8 dimensions — see `RISK_DIMS` in `demo/assets/data/mock.js`.)
 - `demo/` — pure-frontend high-fidelity interactive prototype (multi-file; design-system V4, feature set aligned to V5.0 深化版). **The design & behavior baseline.**
 - `server/` — Backend (Fastify + Prisma + SQLite + TypeScript), part of the V5 full-stack rewrite.
-- `web/` — Frontend (Vue 3 + Vite + Pinia shell) that **vendors the demo engine** under `web/public/engine/` (same style.css, page renderers, components as `demo/`) and replays server data through it. Do NOT rewrite pages in Vue — extend the engine.
+- `web/` — Frontend (Vue 3 + Vite + Pinia shell; build splits echarts/vue chunks via manualChunks) that **vendors the demo engine** under `web/public/engine/` (same style.css, page renderers, components as `demo/`) and replays server data through it. Do NOT rewrite pages in Vue — extend the engine.
 - `README.md` — Quick-start guide for the V5 full-stack version.
 
 The V5 full-stack version (`server/` + `web/`) replicates all 9 demo pages 1:1: `GET /api/bootstrap` ships all entities once, `web/src/engine/adapter.ts` maps them to the demo MOCK shapes, and `MOCK_ENGINE.rebuild()` (in `web/public/engine/mock.js`) recomputes every derived structure (aggregates, graph, AI daily, policy redemption) so all page numbers reconcile with server data. **Server data is fixtures-driven**: `tools/export_demo_fixtures.cjs` exports the demo MOCK entities (demo 口径: 120 enterprises / 67 risk events / 78 tasks / 24 policies / 19 projects) to `server/prisma/demo-fixtures.json`, and `server/prisma/seed-data.ts` just persists that JSON — demo is the single source of truth; `tools/check_data_parity.cjs` (in run_all) fails on any drift. Workflow actions (risk dispatch, task finish, enterprise/project creation, stage notes, policy intake, AI conversations) persist to the backend via `APP.sync` hooks (`web/src/engine/engine.ts`). If the API is unreachable the engine falls back to the built-in seeded demo data and `MainLayout` shows a "⚠ 本地演示数据" badge (via `engineSource` ref from `engine.ts`). A successful login (`POST /api/auth/login` → frontend calls `POST /api/auth/reset-demo`) resets all demo data back to the seeded state, so every demo session starts clean; the frontend then does a full-page navigation so the engine re-boots on fresh data.
@@ -30,7 +30,7 @@ The V5 full-stack version (`server/` + `web/`) replicates all 9 demo pages 1:1: 
 - `tools/check_invariants.js` — risk-event three-state-model invariant check (status legality, event↔task mapping, count conservation, temporal consistency).
 - `.workbuddy/memory/` — work logs from prior development sessions.
 
-Hosted on GitHub (`pany4321/zhaoshang`, branch `master`): CI (`.github/workflows/ci.yml`) runs `npm test` + `npm run build:web` on every push/PR; `deploy-demo.yml` publishes `demo/` to GitHub Pages at https://pany4321.github.io/zhaoshang/ on demo changes. MIT LICENSE. The root `package.json` exists **only** as the workflow entry point (sync / fixtures / parity / test / build scripts — see the mandatory tooling workflow above); the demo itself still has no build step. All UI text and docs are Chinese (zh-CN).
+Hosted on GitHub (`pany4321/zhaoshang`, branch `master`): CI (`.github/workflows/ci.yml`) runs `npm test` + `npm run build:web`（完整构建，含 vue-tsc 类型检查）on every push/PR; `deploy-demo.yml` publishes `demo/` to GitHub Pages at https://pany4321.github.io/zhaoshang/ on demo changes. MIT LICENSE. The root `package.json` exists **only** as the workflow entry point (sync / fixtures / parity / test / build scripts — see the mandatory tooling workflow above); the demo itself still has no build step. All UI text and docs are Chinese (zh-CN).
 
 ## Running the demo
 
@@ -48,7 +48,7 @@ Open `demo/index.html` directly in a browser (Chrome/Edge). ECharts is vendored 
 | `demo/assets/data/mock.js` | `npm run sync`（内含 mock.js 再生）→ `npm run fixtures` → `npm test` → `npm run build:web` |
 | `demo/assets/css/style.css` | `npm run sync`（已纳入直拷）→ `npm test` → `npm run build:web` |
 | `demo/index.html`、`demo/assets/js/common/login.js` | `npm test`（verify_login 覆盖登录门禁） |
-| 区划地图边界重绘（GEO_QINGYANG） | `python tools/update_geo.py` 或 `update_geo_dense.py`（写 demo mock.js）→ 按 mock.js 行全链 |
+| 区划地图边界更新（GEO_QINGYANG） | `python tools/update_geo_real.py`（拉取 DataV 官方 GeoJSON，写 demo mock.js）→ 按 mock.js 行全链。历史手绘工具 update_geo*.py 已被取代 |
 | PDF 字体子集来源或字符集变化 | `python tools/make_pdf_font.py` → `node tools/verify_pdf_export.js` → `npm test` |
 | `web/public/engine/**` | **原则上禁止直改**——回 demo 改后走 sync（仅 `app-core.js`、`vendor/` 属分化例外；直改后 `npm test` + `npm run build:web`） |
 | `web/src/**`（壳层 / engine.ts / adapter.ts） | `npm run build:web` → `npm test`（server 运行时自动含接口回归）；adapter 字段映射变更时另跑 `npm run fixtures` → `npm run parity` |
@@ -64,7 +64,8 @@ Open `demo/index.html` directly in a browser (Chrome/Edge). ECharts is vendored 
 - `build_engine_mock.py` — demo mock.js → web mock.js（由 sync_engine 代跑，含 `R.R.`/括号自检）。
 - `export_demo_fixtures.cjs` — demo mock → `server/prisma/demo-fixtures.json`（server seed 的唯一数据源）。
 - `make_pdf_font.py` — 生成 PDF 中文子集 `demo/assets/vendor/pdf-font-zh.js`（仅字体来源或字符集变化时）。
-- `update_geo.py` / `update_geo_dense.py` — 按区划图重构 mock.js 的 GEO_QINGYANG 边界（仅地图重绘时）。
+- `update_geo_real.py` — 拉取阿里云 DataV GeoAtlas 官方行政边界（庆阳 621000_full，8 区县）替换 mock.js 的 GEO_QINGYANG（地图精度基准；免费公开数据，一次拉取离线内置）。
+- `update_geo.py` / `update_geo_dense.py` — （已废弃）历史手绘估算边界工具，被 update_geo_real.py 取代。
 
 **测试/校验（由 run_all 编排，一般不单独跑）**
 - `run_all.cjs` — 统一入口：首步引擎一致性前置检查（漂移即失败）→ 9 个静态脚本 → server 在跑时追加接口回归（未运行 SKIP 并提示启动命令）。`npm test` 即它。

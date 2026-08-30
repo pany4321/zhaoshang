@@ -4271,3 +4271,48 @@ input[type="range"].rw-slider::-moz-range-thumb {
   border: 2px solid #fff;
   cursor: pointer;
 }
+
+/* ===== 权重状态徽标 ===== */
+.rw-state-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #EFF6FF;
+  color: #2563EB;
+  border: 1px solid #BFDBFE;
+  margin: 0 2px;
+  vertical-align: 1px;
+}
+.rw-state-badge.custom {
+  background: #FFF7ED;
+  color: #C2410C;
+  border-color: #FDBA74;
+}
+
+/* ===== KPI 数字等宽（环比刷新不跳动） ===== */
+.kpi .k-value,
+.risk-big-score,
+.rw-pct,
+.overview-strip .os-v {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 小屏宽表格横向滚动渐变提示 ===== */
+@media (max-width: 900px) {
+  .table-wrap {
+    position: relative;
+    overflow-x: auto;
+  }
+  .table-wrap::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 28px;
+    background: linear-gradient(to left, rgba(241, 245, 249, 0.95), rgba(241, 245, 249, 0));
+    pointer-events: none;
+  }
+}

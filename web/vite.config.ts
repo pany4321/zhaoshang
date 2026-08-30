@@ -26,4 +26,15 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // 大依赖分包：echarts / vue 各自成 chunk，主包显著减小
+        manualChunks: {
+          echarts: ['echarts'],
+          vue: ['vue', 'vue-router', 'pinia'],
+        },
+      },
+    },
+  },
 })

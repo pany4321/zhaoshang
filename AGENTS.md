@@ -9,7 +9,7 @@
 - `招商企业服务与智慧监管平台_系统需求分析说明书_V5.0_深化版.md` — 需求说明书（V5.0 深化版，**现行唯一权威**）。取代已归档的 V3.1 / V4.0 / V5.0 旧版（见 `docs/archive/`）。业务逻辑权威口径：**八维**加权风险模型及其权重、红/橙/黄/蓝四级风险、用户角色、AI 能力矩阵、数据架构。（V3.1 旧稿描述"九维"模型；实际 demo/引擎为八维——见 `demo/assets/data/mock.js` 的 `RISK_DIMS`。）
 - `demo/` — 纯前端高保真交互原型（多文件；设计系统 V4，功能集对齐 V5.0 深化版）。**设计 & 行为唯一基准**。
 - `server/` — 后端（Fastify + Prisma + SQLite + TypeScript），V5 全栈版组成部分。
-- `web/` — 前端（Vue 3 + Vite + Pinia 壳），在 `web/public/engine/` **vendor 了 demo 引擎**（与 `demo/` 相同的 style.css、页面渲染器、components），并回放服务器数据。**不要用 Vue 重写页面——扩展引擎**。
+- `web/` — 前端（Vue 3 + Vite + Pinia 壳；构建经 manualChunks 分包 echarts/vue），在 `web/public/engine/` **vendor 了 demo 引擎**（与 `demo/` 相同的 style.css、页面渲染器、components），并回放服务器数据。**不要用 Vue 重写页面——扩展引擎**。
 - `README.md` — V5 全栈版快速上手指南。
 
 V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /api/bootstrap` 一次性下发全部实体，`web/src/engine/adapter.ts` 映射为 demo MOCK 形状，`MOCK_ENGINE.rebuild()`（`web/public/engine/mock.js`）重算全部派生结构（聚合、图谱、AI 日报、政策兑现），保证页页数字对账。**服务器数据由 fixtures 驱动**：`tools/export_demo_fixtures.cjs` 将 demo MOCK 实体导出为 `server/prisma/demo-fixtures.json`（demo 口径：120 企业 / 67 风险事件 / 78 任务 / 24 政策 / 19 项目），`server/prisma/seed-data.ts` 只负责入库——demo 是单一事实源；`tools/check_data_parity.cjs`（run_all 内）对任何漂移报失败。工作流动作（风险派发、任务办结、企业/项目建档、阶段备注、政策入库、AI 会话）经 `APP.sync` 钩子（`web/src/engine/engine.ts`）落库。API 不可达时引擎回退内置演示数据，`MainLayout` 显示「⚠ 本地演示数据」角标（`engine.ts` 的 `engineSource` ref）。登录成功（`POST /api/auth/login` → 前端调 `POST /api/auth/reset-demo`）会重置全部演示数据到种子态，每场演示从干净态开始；随后前端整页跳转，引擎以新数据重新引导。
@@ -30,7 +30,7 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 - `tools/check_invariants.js` — 风险事件三态模型不变量校验（状态合法性、事件↔任务映射、数量守恒、时序一致性）。
 - `.workbuddy/memory/` — 历史开发会话工作日志。
 
-托管于 GitHub（`pany4321/zhaoshang`，分支 `master`）：CI（`.github/workflows/ci.yml`）在每次 push/PR 运行 `npm test` + `npm run build:web`；`deploy-demo.yml` 在 demo 变更时将 `demo/` 发布到 GitHub Pages https://pany4321.github.io/zhaoshang/ 。MIT LICENSE。根目录 `package.json` **仅**作为工作流入口（sync / fixtures / parity / test / build 脚本——见下方强制工作流）；demo 本身仍无构建步骤。所有 UI 文案与文档为中文（zh-CN）。
+托管于 GitHub（`pany4321/zhaoshang`，分支 `master`）：CI（`.github/workflows/ci.yml`）在每次 push/PR 运行 `npm test` + `npm run build:web`（完整构建，含 vue-tsc 类型检查）；`deploy-demo.yml` 在 demo 变更时将 `demo/` 发布到 GitHub Pages https://pany4321.github.io/zhaoshang/ 。MIT LICENSE。根目录 `package.json` **仅**作为工作流入口（sync / fixtures / parity / test / build 脚本——见下方强制工作流）；demo 本身仍无构建步骤。所有 UI 文案与文档为中文（zh-CN）。
 
 ## 运行 demo
 
@@ -48,7 +48,7 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 | `demo/assets/data/mock.js` | `npm run sync`（内含 mock.js 再生）→ `npm run fixtures` → `npm test` → `npm run build:web` |
 | `demo/assets/css/style.css` | `npm run sync`（已纳入直拷）→ `npm test` → `npm run build:web` |
 | `demo/index.html`、`demo/assets/js/common/login.js` | `npm test`（verify_login 覆盖登录门禁） |
-| 区划地图边界重绘（GEO_QINGYANG） | `python tools/update_geo.py` 或 `update_geo_dense.py`（写 demo mock.js）→ 按 mock.js 行全链 |
+| 区划地图边界更新（GEO_QINGYANG） | `python tools/update_geo_real.py`（拉取 DataV 官方 GeoJSON，写 demo mock.js）→ 按 mock.js 行全链。历史手绘工具 update_geo*.py 已被取代 |
 | PDF 字体子集来源或字符集变化 | `python tools/make_pdf_font.py` → `node tools/verify_pdf_export.js` → `npm test` |
 | `web/public/engine/**` | **原则上禁止直改**——回 demo 改后走 sync（仅 `app-core.js`、`vendor/` 属分化例外；直改后 `npm test` + `npm run build:web`） |
 | `web/src/**`（壳层 / engine.ts / adapter.ts） | `npm run build:web` → `npm test`（server 运行时自动含接口回归）；adapter 字段映射变更时另跑 `npm run fixtures` → `npm run parity` |
@@ -64,7 +64,8 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 - `build_engine_mock.py` — demo mock.js → web mock.js（由 sync_engine 代跑，含 `R.R.`/括号自检）。
 - `export_demo_fixtures.cjs` — demo mock → `server/prisma/demo-fixtures.json`（server seed 的唯一数据源）。
 - `make_pdf_font.py` — 生成 PDF 中文子集 `demo/assets/vendor/pdf-font-zh.js`（仅字体来源或字符集变化时）。
-- `update_geo.py` / `update_geo_dense.py` — 按区划图重构 mock.js 的 GEO_QINGYANG 边界（仅地图重绘时）。
+- `update_geo_real.py` — 拉取阿里云 DataV GeoAtlas 官方行政边界（庆阳 621000_full，8 区县）替换 mock.js 的 GEO_QINGYANG（地图精度基准；免费公开数据，一次拉取离线内置）。
+- `update_geo.py` / `update_geo_dense.py` — （已废弃）历史手绘估算边界工具，被 update_geo_real.py 取代。
 
 **测试/校验（由 run_all 编排，一般不单独跑）**
 - `run_all.cjs` — 统一入口：首步引擎一致性前置检查（漂移即失败）→ 静态脚本 → server 在跑时追加接口回归（未运行 SKIP 并提示启动命令）。`npm test` 即它。

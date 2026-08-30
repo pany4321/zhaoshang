@@ -396,7 +396,8 @@
           '<div id="c_map" class="chart" style="height:360px"></div>' +
         '</div>' +
         '<div class="col card">' +
-          '<div class="card-title">风险态势</div>' +
+          '<div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">风险态势' +
+            '<a href="javascript:;" class="risk-jump" style="font-size:12px;font-weight:400;">进入风险预警 →</a></div>' +
           '<div id="c_riskbar" class="chart" style="height:236px"></div>' +
           '<div class="risk-eff">' +
             '<div class="re-item"><b>' + tPending + '</b><span>待处置</span></div>' +
@@ -640,6 +641,8 @@
           selectedMode: 'single',
           itemStyle: { borderColor: '#fff', borderWidth: 1 },
           label: { show: true, fontSize: 11, color: '#0F172A', fontWeight: 'bold',
+            formatter: function (p) { return p.name + '\n' + (p.value || 0) + ' 家'; },
+            lineHeight: 14,
             textBorderColor: '#fff', textBorderWidth: 2 },
           emphasis: { disabled: false, focus: 'none', scale: false,
             label: { color: '#fff', textBorderColor: 'transparent' },
@@ -872,6 +875,13 @@
     if (dsSel) dsSel.addEventListener('change', function () {
       state.district = this.value;
       APP.render();
+    });
+
+    // 风险态势卡 → 风险预警中心
+    var riskJump = U.$('.risk-jump');
+    if (riskJump) riskJump.addEventListener('click', function () {
+      if (window.APP.navigate) window.APP.navigate('risk');
+      else { state.page = 'risk'; APP.render(); }
     });
 
     // 趋势 Tab 切换

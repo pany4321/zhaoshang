@@ -114,13 +114,24 @@
       '</tr>';
     }).join('');
 
+    // 权重状态徽标（默认 / 自定义）
+    var __defaultW = typeof M.defaultRiskWeights === 'function' ? M.defaultRiskWeights() : [];
+    var __isDefault = __defaultW.length > 0 && __defaultW.every(function (d) {
+      var cur = M.RISK_DIMS.filter(function (x) { return x.key === d.key; })[0];
+      return cur && Math.abs(cur.weight - d.weight) < 0.001;
+    });
+    var weightBadge = '<span class="rw-state-badge' + (__isDefault ? '' : ' custom') + '" title="' +
+      (__isDefault ? '当前为系统默认权重' : '当前为自定义权重（点击 ⚙ 可调整）') + '">' +
+      (__isDefault ? '默认权重' : '自定义权重') + '</span>';
+
     U.$('#content').innerHTML =
       // 顶部：双视图雷达 + 统计卡
       '<div class="row">' +
-        // 左：平台总风险
+        // 左：平台总风险（标题栏含权重状态徽标 + 配置入口）
         '<div class="col card">' +
           '<div class="card-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
-            '<span>全市风险态势 <span class="muted" style="font-size:12px;font-weight:400;">全市 ' + n + ' 家企业加权平均</span></span>' +
+            '<span>全市风险态势 ' + weightBadge +
+              '<span class="muted" style="font-size:12px;font-weight:400;">全市 ' + n + ' 家企业加权平均</span></span>' +
             '<button class="btn sm" id="rfWeightCfg" title="调整八大维度权重并全量重算企业风险评分">⚙ 权重配置</button>' +
           '</div>' +
           '<div style="display:flex;align-items:center;">' +
@@ -531,6 +542,15 @@
 
   function openWeightDrawer() {
     var dims = M.RISK_DIMS;
+    var LS_KEY = 'zs_rw_custom_presets';
+
+    function loadCustomPresets() {
+      try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { return {}; }
+    }
+    function saveCustomPresets(obj) {
+      try { localStorage.setItem(LS_KEY, JSON.stringify(obj)); } catch (e) { /* 隐私模式等场景静默 */ }
+    }
+
     var slidersHtml = dims.map(function (d) {
       var pct = Math.round((d.weight || 0) * 100);
       return '<div style="margin-bottom:14px;">' +
@@ -546,12 +566,14 @@
       '<div style="font-size:13px;">' +
         '<div style="background:#F1F5F9;border-radius:8px;padding:10px 12px;margin-bottom:16px;">' +
           '<div style="font-size:12px;color:#64748B;margin-bottom:8px;">预设权重（一键应用）：</div>' +
-          '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">' +
             '<button class="btn sm rw-preset" data-p="standard">默认权重</button>' +
             '<button class="btn sm rw-preset" data-p="perform">强化招商履约</button>' +
             '<button class="btn sm rw-preset" data-p="tax">强化税务合规</button>' +
             '<button class="btn sm rw-preset" data-p="credit">强化司法信用</button>' +
           '</div>' +
+          '<div id="rwCustomArea"></div>' +
+          '<div style="margin-top:8px;"><button class="btn sm" id="rwSaveCustom">💾 保存当前为自定义预设</button></div>' +
         '</div>' +
         slidersHtml +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:12px;border-top:1px solid #E2E8F0;">' +
@@ -597,6 +619,66 @@
       });
     });
 
+    // 当前滑块值 → {维度key: 百分比}，供预设应用/保存共用
+    function currentPresetFromSliders() {
+      var preset = {};
+      dims.forEach(function (d) {
+        var s = $('.rw-slider[data-key="' + d.key + '"]');
+        preset[d.key] = parseInt(s ? s.value : '0', 10) || 0;
+      });
+      return preset;
+    }
+    function applyPresetToSliders(preset) {
+      dims.forEach(function (d) {
+        var val = preset[d.key];
+        var slider = $('.rw-slider[data-key="' + d.key + '"]');
+        var pctEl = $('.rw-pct[data-key="' + d.key + '"]');
+        if (slider) slider.value = val;
+        if (pctEl) pctEl.textContent = val + '%';
+      });
+      refreshSum();
+    }
+
+    function renderCustomArea() {
+      var area = $('#rwCustomArea');
+      if (!area) return;
+      var customs = loadCustomPresets();
+      var names = Object.keys(customs);
+      if (!names.length) { area.innerHTML = ''; return; }
+      area.innerHTML = names.map(function (n) {
+        return '<span style="display:inline-flex;align-items:center;gap:2px;margin:2px 4px 2px 0;">' +
+          '<button class="btn sm rw-preset" data-p="custom:' + U.esc(n) + '">' + U.esc(n) + '</button>' +
+          '<button class="btn sm rw-del" data-n="' + U.esc(n) + '" title="删除该预设" style="padding:4px 8px;">×</button>' +
+        '</span>';
+      }).join('');
+      area.querySelectorAll('.rw-del').forEach(function (delBtn) {
+        delBtn.addEventListener('click', function () {
+          var customs2 = loadCustomPresets();
+          delete customs2[this.dataset.n];
+          saveCustomPresets(customs2);
+          renderCustomArea();
+          C.toast('已删除自定义预设「' + this.dataset.n + '」', 'info');
+        });
+      });
+    }
+
+    // 保存当前滑块为自定义预设（自动命名：自定义1/2/3…）
+    var saveBtn = $('#rwSaveCustom');
+    if (saveBtn) saveBtn.addEventListener('click', function () {
+      if (refreshSum() !== 100) {
+        C.toast('权重总和需为 100% 后才能保存为预设', 'warning');
+        return;
+      }
+      var customs = loadCustomPresets();
+      var i = 1;
+      while (customs['自定义' + i]) i++;
+      var name = '自定义' + i;
+      customs[name] = currentPresetFromSliders();
+      saveCustomPresets(customs);
+      renderCustomArea();
+      C.toast('已保存自定义预设「' + name + '」', 'success');
+    });
+
     $$('.rw-preset').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var p = this.dataset.p;
@@ -607,24 +689,21 @@
           (M.defaultRiskWeights ? M.defaultRiskWeights() : []).forEach(function (d) {
             preset[d.key] = Math.round(d.weight * 100);
           });
+        } else if (p.indexOf('custom:') === 0) {
+          var customs = loadCustomPresets();
+          preset = customs[p.slice(7)];
         } else {
           preset = WEIGHT_PRESETS[p];
         }
         if (!preset) return;
-        dims.forEach(function (d) {
-          var val = preset[d.key];
-          var slider = $('.rw-slider[data-key="' + d.key + '"]');
-          var pctEl = $('.rw-pct[data-key="' + d.key + '"]');
-          if (slider) slider.value = val;
-          if (pctEl) pctEl.textContent = val + '%';
-        });
-        refreshSum();
+        applyPresetToSliders(preset);
       });
     });
 
     var cancelBtn = $('#rwCancel');
     if (cancelBtn) cancelBtn.addEventListener('click', function () { C.closeDrawer(); });
 
+    renderCustomArea();
     var applyBtn = $('#rwApply');
     if (applyBtn) applyBtn.addEventListener('click', function () {
       if (refreshSum() !== 100) {
