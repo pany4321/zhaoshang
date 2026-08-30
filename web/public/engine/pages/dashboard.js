@@ -777,13 +777,11 @@
       funnelChart.on('click', function (p) {
         var st = M.PROJECT_STAGES.filter(function (s) { return s.name === p.name; })[0];
         if (!st) return;
-        // 该阶段项目数为 0 时不跳转
+        // 该阶段项目数为 0 时不跳转（按当前辖区口径统计，与漏斗显示数字一致）
         var cnt = 0;
-        for (var i = 0; i < M.PROJECTS.length; i++) {
-          if (M.PROJECTS[i].stage === st.key) cnt++;
-        }
+        projects.forEach(function (pj) { if (pj.stage === st.key) cnt++; });
         if (cnt === 0) {
-          APP.Components.toast('该阶段暂无项目', 'info');
+          APP.Components.toast('该阶段暂无项目' + (state.district === 'all' ? '' : '（当前辖区：' + (M.DISTRICTS.filter(function(d){return d.key===state.district;})[0]||{}).name + '）'), 'info');
           return;
         }
         // 按点击阶段筛选项目库，保留当前辖区口径，清除其他条件，清单卡片滚到顶部（与全局搜索同款滚动行为）
