@@ -14,10 +14,12 @@
 用法：python tools/build_engine_mock.py（也可由 tools/sync_engine.py 代跑）
 """
 import io
+import os
 import sys
 
-SRC = r"D:\research\政府招商引资风险管理平台\demo\assets\data\mock.js"
-DST = r"D:\research\政府招商引资风险管理平台\web\public\engine\mock.js"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC = os.path.join(ROOT, 'demo', 'assets', 'data', 'mock.js')
+DST = os.path.join(ROOT, 'web', 'public', 'engine', 'mock.js')
 
 s = io.open(SRC, encoding="utf-8").read()
 

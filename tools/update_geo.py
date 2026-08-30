@@ -9,7 +9,9 @@
 """
 import io, json, re
 
-MOCK = r"D:\research\政府招商引资风险管理平台\demo\assets\data\mock.js"
+import os
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MOCK = os.path.join(ROOT, "demo", "assets", "data", "mock.js")
 
 # 节点表：名称 -> [经度, 纬度]
 N = {

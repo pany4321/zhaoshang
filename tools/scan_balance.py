@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import io, re
-s = io.open('web/public/engine/mock.js', encoding='utf-8').read()
+import os
+s = io.open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'web', 'public', 'engine', 'mock.js'), encoding='utf-8').read()
 depth = 0
 line_no = 1
 first_neg = None
