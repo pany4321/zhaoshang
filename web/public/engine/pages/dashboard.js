@@ -786,11 +786,11 @@
           APP.Components.toast('该阶段暂无项目', 'info');
           return;
         }
-        // 按点击阶段筛选项目库，清除其他条件，清单卡片滚到顶部（与全局搜索同款滚动行为）
+        // 按点击阶段筛选项目库，保留当前辖区口径，清除其他条件，清单卡片滚到顶部（与全局搜索同款滚动行为）
         var fp = state.filter.project;
         fp.stage = st.key;
         fp.keyword = '';
-        fp.district = 'all';
+        fp.district = state.district;
         fp.owner = '';
         fp.page = 1;
         state.scrollProjListToTop = true;
@@ -928,11 +928,11 @@
         var pid = item.dataset.id;
         var p = M.PROJECTS.filter(function (x) { return x.id === pid; })[0];
         if (!p) return;
-        // 用项目全名作为关键词，确保精确筛出这一个；清除其他筛选条件
+        // 用项目全名作为关键词，确保精确筛出这一个；保留当前辖区口径，清除其他筛选条件
         var fp = state.filter.project;
         fp.keyword = p.name;
         fp.stage = '';
-        fp.district = 'all';
+        fp.district = state.district;
         fp.owner = '';
         fp.page = 1;
         state.highlightProjectId = pid; // 复用高亮 + 滚动清单到顶的机制
