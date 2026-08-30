@@ -48,7 +48,7 @@ Open `demo/index.html` directly in a browser (Chrome/Edge). ECharts is vendored 
 | `demo/assets/data/mock.js` | `npm run sync`（内含 mock.js 再生）→ `npm run fixtures` → `npm test` → `npm run build:web` |
 | `demo/assets/css/style.css` | `npm run sync`（已纳入直拷）→ `npm test` → `npm run build:web` |
 | `demo/index.html`、`demo/assets/js/common/login.js` | `npm test`（verify_login 覆盖登录门禁） |
-| 区划地图边界更新（GEO_QINGYANG） | `python tools/update_geo_real.py`（拉取 DataV 官方 GeoJSON，写 demo mock.js）→ 按 mock.js 行全链。历史手绘工具 update_geo*.py 已被取代 |
+| 区划地图边界更新（GEO_QINGYANG） | `python tools/update_geo_real.py`（拉取 DataV 官方 GeoJSON，写 demo mock.js）→ 按 mock.js 行全链 |
 | PDF 字体子集来源或字符集变化 | `python tools/make_pdf_font.py` → `node tools/verify_pdf_export.js` → `npm test` |
 | `web/public/engine/**` | **原则上禁止直改**——回 demo 改后走 sync（仅 `app-core.js`、`vendor/` 属分化例外；直改后 `npm test` + `npm run build:web`） |
 | `web/src/**`（壳层 / engine.ts / adapter.ts） | `npm run build:web` → `npm test`（server 运行时自动含接口回归）；adapter 字段映射变更时另跑 `npm run fixtures` → `npm run parity` |
@@ -65,7 +65,6 @@ Open `demo/index.html` directly in a browser (Chrome/Edge). ECharts is vendored 
 - `export_demo_fixtures.cjs` — demo mock → `server/prisma/demo-fixtures.json`（server seed 的唯一数据源）。
 - `make_pdf_font.py` — 生成 PDF 中文子集 `demo/assets/vendor/pdf-font-zh.js`（仅字体来源或字符集变化时）。
 - `update_geo_real.py` — 拉取阿里云 DataV GeoAtlas 官方行政边界（庆阳 621000_full，8 区县）替换 mock.js 的 GEO_QINGYANG（地图精度基准；免费公开数据，一次拉取离线内置）。
-- `update_geo.py` / `update_geo_dense.py` — （已废弃）历史手绘估算边界工具，被 update_geo_real.py 取代。
 
 **测试/校验（由 run_all 编排，一般不单独跑）**
 - `run_all.cjs` — 统一入口：首步引擎一致性前置检查（漂移即失败）→ 9 个静态脚本 → server 在跑时追加接口回归（未运行 SKIP 并提示启动命令）。`npm test` 即它。

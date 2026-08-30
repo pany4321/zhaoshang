@@ -573,7 +573,10 @@
             '<button class="btn sm rw-preset" data-p="credit">强化司法信用</button>' +
           '</div>' +
           '<div id="rwCustomArea"></div>' +
-          '<div style="margin-top:8px;"><button class="btn sm" id="rwSaveCustom">💾 保存当前为自定义预设</button></div>' +
+          '<div style="margin-top:8px;display:flex;gap:6px;">' +
+            '<input type="text" class="f-input" id="rwCustomName" placeholder="预设名称（选填，重名覆盖）" style="flex:1;min-width:0;height:30px;font-size:12px;"/>' +
+            '<button class="btn sm" id="rwSaveCustom" style="white-space:nowrap;">💾 保存为预设</button>' +
+          '</div>' +
         '</div>' +
         slidersHtml +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:12px;border-top:1px solid #E2E8F0;">' +
@@ -664,19 +667,26 @@
 
     // 保存当前滑块为自定义预设（自动命名：自定义1/2/3…）
     var saveBtn = $('#rwSaveCustom');
+    var nameInput = $('#rwCustomName');
     if (saveBtn) saveBtn.addEventListener('click', function () {
       if (refreshSum() !== 100) {
         C.toast('权重总和需为 100% 后才能保存为预设', 'warning');
         return;
       }
       var customs = loadCustomPresets();
-      var i = 1;
-      while (customs['自定义' + i]) i++;
-      var name = '自定义' + i;
+      // 用户输入名称优先；留空则自动命名（自定义1/2/3…）
+      var name = (nameInput && nameInput.value || '').trim();
+      var overwritten = !!name && !!customs[name];
+      if (!name) {
+        var i = 1;
+        while (customs['自定义' + i]) i++;
+        name = '自定义' + i;
+      }
       customs[name] = currentPresetFromSliders();
       saveCustomPresets(customs);
+      if (nameInput) nameInput.value = '';
       renderCustomArea();
-      C.toast('已保存自定义预设「' + name + '」', 'success');
+      C.toast(overwritten ? '已覆盖同名预设「' + name + '」' : '已保存预设「' + name + '」', 'success');
     });
 
     $$('.rw-preset').forEach(function (btn) {
