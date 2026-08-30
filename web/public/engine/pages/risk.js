@@ -119,7 +119,10 @@
       '<div class="row">' +
         // 左：平台总风险
         '<div class="col card">' +
-          '<div class="card-title">全市风险态势 <span class="muted" style="font-size:12px;font-weight:400;">全市 ' + n + ' 家企业加权平均</span></div>' +
+          '<div class="card-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+            '<span>全市风险态势 <span class="muted" style="font-size:12px;font-weight:400;">全市 ' + n + ' 家企业加权平均</span></span>' +
+            '<button class="btn sm" id="rfWeightCfg" title="调整八大维度权重并全量重算企业风险评分">⚙ 权重配置</button>' +
+          '</div>' +
           '<div style="display:flex;align-items:center;">' +
             '<div id="c_risk_radar_all" class="chart" style="width:60%;height:300px;"></div>' +
             '<div style="width:40%;padding-left:12px;">' +
@@ -199,7 +202,6 @@
       '<div class="card mt">' +
         '<div class="card-title">风险事件清单' +
           '<span style="margin-left:12px;">' +
-            '<button class="btn sm" id="rfWeightCfg">⚙ 权重配置</button> ' +
             '<button class="btn sm primary" id="rfAddRisk">＋ 新建风险事件</button> ' +
             '<button class="btn sm" id="batchDispatch">批量派发</button> ' +
             '<button class="btn sm" id="exportRisk">⬇ 导出报表</button>' +
