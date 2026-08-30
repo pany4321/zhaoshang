@@ -522,7 +522,7 @@
 
   // ---- 新建风险表单 ----
   // ============ 八大风险维度权重动态配置 ============
-  // 预设监管策略（8 维权重，合计 100%）：标准基线 / 强化履约 / 强化税务 / 司法信用严管
+  // 预设权重（8 维，合计 100%）：默认权重 / 强化履约 / 强化税务 / 强化司法信用
   var WEIGHT_PRESETS = {
     standard: { operation: 20, finance: 15, judicial: 15, credit: 15, tender: 10, tax: 10, perform: 10, ip: 5 },
     perform:  { operation: 10, finance: 10, judicial: 10, credit: 10, tender: 5,  tax: 10, perform: 40, ip: 5 },
@@ -546,12 +546,12 @@
     var html =
       '<div style="font-size:13px;">' +
         '<div style="background:#F1F5F9;border-radius:8px;padding:10px 12px;margin-bottom:16px;">' +
-          '<div style="font-size:12px;color:#64748B;margin-bottom:8px;">预设监管策略（一键应用）：</div>' +
+          '<div style="font-size:12px;color:#64748B;margin-bottom:8px;">预设权重（一键应用）：</div>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
-            '<button class="btn sm rw-preset" data-p="standard">标准基线</button>' +
+            '<button class="btn sm rw-preset" data-p="standard">默认权重</button>' +
             '<button class="btn sm rw-preset" data-p="perform">强化招商履约</button>' +
             '<button class="btn sm rw-preset" data-p="tax">强化税务合规</button>' +
-            '<button class="btn sm rw-preset" data-p="credit">司法信用严管</button>' +
+            '<button class="btn sm rw-preset" data-p="credit">强化司法信用</button>' +
           '</div>' +
         '</div>' +
         slidersHtml +
@@ -564,7 +564,7 @@
         '</div>' +
       '</div>';
 
-    C.openDrawer({ title: '⚙ 八大风险维度权重模型配置', subtitle: '调整后全量重算 120 家企业风险评分', bodyHtml: html, width: 460 });
+    C.openDrawer({ title: '⚙ 八大风险维度权重模型配置', subtitle: '调整后自动全量重算企业风险评分', bodyHtml: html, width: 460 });
 
     // openDrawer 同步渲染到 #drawerWrap，直接在其上绑定
     var wrap = U.$('#drawerWrap');
