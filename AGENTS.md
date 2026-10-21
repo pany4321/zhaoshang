@@ -57,7 +57,7 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 | `tools/export_demo_fixtures.cjs` 映射逻辑 | `npm run fixtures` → `npm run parity` → `npm run test:api` |
 | 需求说明书 / DEMO 文档 | 无自动校验；一切数据底数以 `npm run parity` 的输出为准，不得写入与 demo/server 冲突的数字 |
 
-### 工具速览（tools/ 全部 20 个，各自归位）
+### 工具速览（tools/ 全部 29 个，各自归位）
 
 **同步/生成（demo 是唯一基准，改 demo 后必跑）**
 - `sync_engine.py` — demo 引擎文件（含 style.css）→ `web/public/engine/`（内含 mock.js 再生）；`--check` 仅校验。`run_all` 首步自动执行该校验。
@@ -65,6 +65,8 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 - `export_demo_fixtures.cjs` — demo mock → `server/prisma/demo-fixtures.json`（server seed 的唯一数据源）。
 - `make_pdf_font.py` — 生成 PDF 中文子集 `demo/assets/vendor/pdf-font-zh.js`（仅字体来源或字符集变化时）。
 - `update_geo_real.py` — 拉取阿里云 DataV GeoAtlas 官方行政边界（庆阳 621000_full，8 区县）替换 mock.js 的 GEO_QINGYANG（地图精度基准；免费公开数据，一次拉取离线内置）。
+- `publish.mjs` — `web/dist` → `server/public` 并调用 `precompress.mjs`。`npm run build:web` 已内置，**不要手敲 cp**——漏跑预压缩不会报错，只表现为「首屏又变慢了」。
+- `precompress.mjs` — 为 `server/public` 下文本资源生成 `.br`/`.gz`，配合 `server/src/index.ts` 的 `@fastify/static { preCompressed: true }` 命中。首屏体积 2.2MB → 534KB 主要靠它，是构建流程的必需项。
 
 **测试/校验（由 run_all 编排，一般不单独跑）**
 - `run_all.cjs` — 统一入口：首步引擎一致性前置检查（漂移即失败）→ 静态脚本 → server 在跑时追加接口回归（未运行 SKIP 并提示启动命令）。`npm test` 即它。
@@ -73,6 +75,7 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 
 **诊断（按需，不进 run_all）**
 - `scan_balance.py` / `trace_depth.py` — mock.js 括号配平与结构标记定位（排查生成产物时用）。
+- `measure_first_screen.py` — 冷启动首屏体积核算：解析 `index.html` 入口 + 引擎 4 批脚本，逐个实测 br 传输体积，并按 RTT/带宽估算公网耗时。**动过加载策略或构建配置后用它验收**（当前基线：原始 1.84MB → br 444KB，公网约 1.1s）。
 
 ### 强制规则
 

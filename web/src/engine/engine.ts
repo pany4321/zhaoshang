@@ -17,55 +17,97 @@ declare global {
   }
 }
 
-const ENGINE_SCRIPTS = [
-  '/engine/mock.js',
-  '/engine/utils.js',
-  '/engine/state.js',
-  '/engine/components.js',
-  '/engine/pages/dashboard.js',
-  '/engine/pages/enterprise.js',
-  '/engine/pages/profile.js',
-  '/engine/pages/risk.js',
-  '/engine/pages/graph.js',
-  '/engine/pages/workbench.js',
-  '/engine/pages/project.js',
-  '/engine/pages/policy.js',
-  '/engine/pages/aidemo.js',
-  '/engine/app-core.js',
+// 脚本加载批次：批次边界由依赖关系决定，批内并行、批间串行。
+// 原实现 18 个脚本逐个 await，公网 RTT 约 200ms 时仅网络等待就 3.6s；分 4 批后降到约 0.8s。
+// 依赖依据（已逐文件核对）：
+//   · mock.js 只挂 window.MOCK，不读其它模块
+//   · utils.js / state.js 用 `window.APP = window.APP || {}` 幂等写法，顶层不读 MOCK
+//   · components.js 顶层读 APP.state → 必须等批 1
+//   · 页面渲染器顶层读公共模块，彼此靠 APP.registerRenderer 自注册、互不依赖
+//   · app-core 需全部页面注册完毕
+const SCRIPT_BATCHES: string[][] = [
+  // 批 1：数据层 + 工具 + 状态，三者顶层互不依赖，可并行
+  ['/engine/mock.js', '/engine/utils.js', '/engine/state.js'],
+  // 批 2：公共组件，顶层依赖 APP.state
+  ['/engine/components.js'],
+  // 批 3：9 个页面渲染器，各自 APP.registerRenderer 自注册，互不依赖
+  [
+    '/engine/pages/dashboard.js',
+    '/engine/pages/enterprise.js',
+    '/engine/pages/profile.js',
+    '/engine/pages/risk.js',
+    '/engine/pages/graph.js',
+    '/engine/pages/workbench.js',
+    '/engine/pages/project.js',
+    '/engine/pages/policy.js',
+    '/engine/pages/aidemo.js',
+  ],
+  // 批 4：应用核心，需页面全部注册完毕
+  ['/engine/app-core.js'],
 ]
 
-// PDF 导出依赖（jsPDF UMD + autotable，与纯前端版同一份构建产物）
-// 注意：autotable 必须在 jspdf 之后顺序加载，否则插件注册不到 jsPDF 原型上
-const VENDOR_SCRIPTS = [
-  '/engine/vendor/jspdf.umd.min.js',
-  '/engine/vendor/jspdf.plugin.autotable.min.js',
-]
+// —— PDF 导出依赖：按需加载，不进首屏关键路径 ——
+// jspdf(364KB) + autotable(39KB) + 中文字体子集(410KB) 合计约 813KB，
+// 首屏与 8 个页面都不使用，只有画像页点「导出报告」才需要。
+// 原先在引导阶段加载，等于白占 31% 首屏流量和 3 次 RTT。
+let pdfLibPromise: Promise<void> | null = null
+export function ensurePdfLibs(): Promise<void> {
+  if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve()
+  if (pdfLibPromise) return pdfLibPromise
+  pdfLibPromise = (async () => {
+    // autotable 必须挂在 jspdf 之后，否则注册不到 jsPDF 原型
+    await loadScript('/engine/vendor/jspdf.umd.min.js')
+    await loadScript('/engine/vendor/jspdf.plugin.autotable.min.js')
+    // 字体缺失不阻断（导出时会降级为打印视图），故单独吞掉错误
+    await loadScript('/fonts/pdf-font-zh.js').catch(() => {})
+    if (!window.jspdf || !window.jspdf.jsPDF) throw new Error('jsPDF 初始化失败')
+  })().catch((e) => {
+    pdfLibPromise = null   // 失败不粘住，下次导出可重试
+    throw e
+  })
+  return pdfLibPromise
+}
+
+export async function loadEngineScripts() {
+  if (window.APP && window.MOCK) return
+  for (const batch of SCRIPT_BATCHES) {
+    await Promise.all(batch.map((src) => loadScript(src)))
+  }
+}
 
 export const PAGE_KEYS = [
   'dashboard', 'enterprise', 'profile', 'risk',
   'graph', 'workbench', 'project', 'policy', 'aidemo',
 ]
 
-function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const s = document.createElement('script')
-    s.src = src
-    s.onload = () => resolve()
-    s.onerror = () => reject(new Error('引擎脚本加载失败: ' + src))
-    document.head.appendChild(s)
-  })
+// 引擎脚本版本号：每次改动 demo/web 前端引擎后递增，
+// 用于给脚本 URL 加 ?v=xxx 强制浏览器与 CDN 重新取（Cloudflare 的
+// Browser Cache TTL 会覆盖源站 Cache-Control，改头无效，只能改 URL）
+const ENGINE_VER = '20261021d'
+
+function withVer(src: string): string {
+  return src + (src.indexOf('?') >= 0 ? '&' : '?') + 'v=' + ENGINE_VER
 }
 
-export async function loadEngineScripts() {
-  if (window.APP && window.MOCK) return
-  for (const src of ENGINE_SCRIPTS) {
-    await loadScript(src)
-  }
-  // jsPDF → autotable 顺序加载（注册依赖前者），字体子集并行；失败静默（导出时回退打印视图）
-  for (const src of VENDOR_SCRIPTS) {
-    await loadScript(src).catch(() => {})
-  }
-  loadScript('/fonts/pdf-font-zh.js').catch(() => {})
+function loadScript(src: string, retries = 2): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const attempt = (left: number) => {
+      const s = document.createElement('script')
+      s.src = withVer(src)
+      s.onload = () => resolve()
+      s.onerror = () => {
+        // 移除失败的标签，避免残留；公网/弱网环境下单次抖动不应导致整页卡死
+        s.remove()
+        if (left > 0) {
+          setTimeout(() => attempt(left - 1), 250)
+        } else {
+          reject(new Error('引擎脚本加载失败: ' + src))
+        }
+      }
+      document.head.appendChild(s)
+    }
+    attempt(retries)
+  })
 }
 
 // —— 用户上下文（由 Vue 壳注入，供后端同步接口使用） ——
@@ -86,6 +128,8 @@ function queueAiSync(agent: string, msgs: any[]) {
 // —— 工作流动作的服务端同步（尽力而为，不阻断本地演示闭环） ——
 function installSync() {
   const APP = window.APP
+  // 供引擎（profile.js 的导出报告）按需拉取 813KB 的 PDF 依赖
+  APP.ensurePdfLibs = ensurePdfLibs
   APP.sync = {
     dispatch(ev: any) {
       dispatchRisk(ev.id, currentUser?.username || 'admin').catch(() => {})
@@ -112,9 +156,12 @@ function installSync() {
     enterpriseCreated(ent: any, d: any) {
       createEnterprise({
         name: ent.name,
-        districtId: d.district,
-        industryId: d.industry,
+        // 空字符串 → null：外省招商线索落地前无庆阳辖区，不得顶替为某个区县
+        districtId: d.district || null,
+        industryId: d.industry || null,
         investment: Math.round(d.amountWan || 0),
+        // 真实工商注册资本（万元）；未提供时后端退回投资额
+        regCapital: d.regCapitalWan || undefined,
       }).catch(() => {})
     },
     projectCreated(p: any, d: any) {
@@ -122,8 +169,8 @@ function installSync() {
         name: p.name,
         enterpriseId: p.enterprise,
         investment: p.amountWan,
-        districtId: p.district,
-        industryId: d.industry,
+        districtId: p.district || null,
+        industryId: d.industry || null,
         org: p.owner,
         contact: p.contact,
         note: d.note || '',

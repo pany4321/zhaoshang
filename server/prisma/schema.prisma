@@ -42,6 +42,49 @@ model User {
   districtId String?
   district District? @relation(fields: [districtId], references: [id])
   createdAt DateTime @default(now())
+
+  // 登录安全（防暴力破解）
+  failedAttempts Int       @default(0)   // 连续登录失败次数
+  lockedUntil    DateTime?               // 锁定截止时间
+  lastLoginAt    DateTime?               // 最近成功登录时间
+  passwordChangedAt DateTime?            // 最近改密时间
+}
+
+// ============ 审计日志 ============
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  username  String   // 操作人（未登录时为 anonymous）
+  action    String   // login / login_fail / logout / dispatch_risk / task_start / task_finish /
+                     // create_enterprise / create_project / create_policy / update_risk_weights /
+                     // sync_data / change_password
+  target    String?  // 操作对象，形如 "Enterprise:E001"、"RiskEvent:R027"、"Task:79"
+  detail    String?  // JSON 字符串：关键参数与改前/改后值
+  result    String   @default("success") // success / fail
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([username, createdAt])
+  @@index([action, createdAt])
+}
+
+// ============ 企业档案记录（行政处罚/经营异常/股权出质/动产抵押/分支机构/主要人员）============
+
+model EnterpriseRecord {
+  id           String @id // REC0001 ...
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  type         String // punish / abnormal / pledge / chattel / branch / employee
+  title        String // 列表主标题（处罚类型 / 列入原因 / 出质人等）
+  detail       String? // JSON 字符串：各类型差异化字段
+  occurDate    String? // 发生/公示/成立日期
+  amount       Float?  // 涉及金额（万元），无则为 null
+
+  createdAt    DateTime @default(now())
+
+  @@index([enterpriseId, type])
+  @@index([type])
 }
 
 // ============ 企业 ============
@@ -56,10 +99,12 @@ model Enterprise {
   bizStatus   String   // 在营 / 异常 / 注销
   creditStatus String  // 良好 / 关注 / 较差
   regCapital  String   // 注册资本
-  districtId  String
-  district    District @relation(fields: [districtId], references: [id])
-  industryId  String
-  industry    Industry @relation(fields: [industryId], references: [id])
+  // 区县/产业可空：AI 推荐纳入的外省线索企业在落地前无庆阳辖区归属，不得伪造区县
+  // （原实现固定填 xf 西峰区，污染区县统计）。空值前端显示「区县未定」。
+  districtId  String?
+  district    District? @relation(fields: [districtId], references: [id])
+  industryId  String?
+  industry    Industry? @relation(fields: [industryId], references: [id])
   isKey       Boolean  @default(false) // 重点企业
   isNew       Boolean  @default(false) // 本月新增
   newDate     String?  // 签约日期
@@ -85,14 +130,55 @@ model Enterprise {
   riskCommit  Float    @default(0) // 招商履约
   riskIp      Float    @default(0) // 知识产权
 
+  // ===== 深度数据（真实工商/司法/知产/招投标，来源见 _source）=====
+  patentCount    Int @default(0) // 专利总数
+  inventionCount Int @default(0) // 发明专利数
+  trademarkCount Int @default(0) // 商标数
+  judicialCount  Int @default(0) // 司法案件数
+  zhixingCount   Int @default(0) // 被执行记录数
+  shixinCount    Int @default(0) // 失信被执行记录数
+  bidCount       Int @default(0) // 招投标参与数
+
+  // ===== 真实财务数据（来源：工商年报公示，仅公示企业有值）=====
+  assetTotal Float   @default(0) // 资产总额（万元）
+  netProfit  Float   @default(0) // 净利润（万元，可为负）
+  finYear    String? // 财务数据所属年份，null = 该企业未公示财务数据
+
+  // ===== 真实国标行业分类（来源 company_industry，2017 国民经济行业分类，官方公示）=====
+  // 用途：与 industryId（招商视角的 12 个产业分类，属规则推导）并存。
+  // 招商汇报用 industryId 口径；对上报送、外部核验时用 nationalIndustry 官方口径。
+  nationalIndustryL1 String? // 一级门类，如「建筑业」
+  nationalIndustry   String? // 二级大类，如「土木工程建筑业」
+  nationalIndustryL3 String? // 三级小类，如「市政道路工程建筑」
+
   // 关系
   shareholders Shareholder[]
   projects     Project?
   riskEvents   RiskEvent[]
   tasks        Task[]
+  judicialCases JudicialCase[]
+  records      EnterpriseRecord[]
+  aiAnalyses   AiAnalysis[]
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+// ============ 司法案件明细 ============
+
+model JudicialCase {
+  id           String     @id // J0001 ...
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  title        String? // 案件标题
+  caseCode     String? // 案号
+  caseReason   String? // 案由
+  partyRole    String? // 当事人角色（被执行人/一审被告/一审原告…）
+  procedure    String? // 审判程序（首次执行/民事一审/民事二审…）
+  trialTime    String? // 审判时间
+  typeTags     String? // 类型标签
+
+  @@index([enterpriseId])
 }
 
 model Shareholder {
@@ -161,10 +247,11 @@ model Project {
   stageName    String
   progress     Int        @default(5) // %
   investment   Float      @default(0) // 总投资 万元
-  districtId   String
-  district     District   @relation(fields: [districtId], references: [id])
-  industryId   String
-  industry     Industry   @relation(fields: [industryId], references: [id])
+  // 同 Enterprise：外省线索项目在落地前无辖区归属，区县/产业允许为空
+  districtId   String?
+  district     District?  @relation(fields: [districtId], references: [id])
+  industryId   String?
+  industry     Industry?  @relation(fields: [industryId], references: [id])
   org          String     // 责任单位
   contact      String?    // 联系人
   riskLevel    String     // red / orange / yellow / blue
@@ -227,4 +314,59 @@ model AiConversation {
   createdAt   DateTime @default(now())
 
   @@index([agentType, username])
+}
+
+// ============ AI 分析结果（落库留痕） ============
+// 三类 AI 结果统一留痕，供事后追溯与复核（政务场景要求可审计）：
+//   risk_assess  — 画像页「AI风险评估」
+//   judge        — 画像页「重新分析研判」
+//   policy_match — 政策页「AI智能匹配」
+//
+// degraded=true 表示大模型不可用、结果来自本地规则回退。
+// 界面按需求不标注来源差异，但后台可据此区分真实推理与降级结果。
+
+model AiAnalysis {
+  id           Int         @id @default(autoincrement())
+  type         String      // risk_assess | judge | policy_match
+  enterpriseId String?     // policy_match 时为空（该类型面向政策）
+  enterprise   Enterprise? @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  policyId     String?     // policy_match 的目标政策
+  summary      String      // 结论摘要（列表/审计直读，不必解析 JSON）
+  payload      String      // 完整结构化结果（JSON 字符串）
+  confidence   Int         @default(0) // 0-100；degraded 时为本地估算值
+  degraded     Boolean     @default(false)
+  model        String?     // 实际使用的模型名，便于比对不同模型输出
+  latencyMs    Int         @default(0)
+  createdBy    String?     // 操作人 username
+  createdAt    DateTime    @default(now())
+
+  @@index([enterpriseId, type])
+  @@index([policyId])
+  @@index([createdAt])
+}
+
+// ============ 招商候选企业池（真实外部企业） ============
+// 来源：Doris opt_company_base + company_industry（官方国标分类）
+// 筛选口径：西北 6 省（排除庆阳本地）· 存续 · 公司制 ·
+//          注册资本 5000万-5亿（可招引区间）· 属庆阳重点产业的国标二级行业
+// 用途：项目页「AI 智能推荐」的候选池，替代原 mock.js 中 18 家虚构线索。
+
+model ProspectEnterprise {
+  id          Int      @id @default(autoincrement())
+  name        String
+  creditCode  String?  @unique
+  province    String
+  city        String
+  industryL1  String? // 国标一级门类
+  industryL2  String? // 国标二级大类
+  regCapital  Float    @default(0) // 注册资本（万元）
+  foundDate   String?
+  bizScope    String? // 经营范围摘要（前 150 字）
+  source      String   @default("company_industry") // 数据来源标注
+  recommended Int      @default(0) // 已被推荐次数，用于轮转避免重复
+  fetchedAt   DateTime @default(now())
+
+  @@index([industryL2])
+  @@index([province])
+  @@index([recommended])
 }

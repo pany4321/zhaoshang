@@ -4316,3 +4316,17 @@ input[type="range"].rw-slider::-moz-range-thumb {
     pointer-events: none;
   }
 }
+
+/* ============================================================
+ * AI 智能体消息内 Markdown 渲染（表格 / 粗体 / 分段）
+ * 大模型走 MCP 查数时返回 Markdown 表格，需要结构化呈现
+ * ============================================================ */
+.msg-table-wrap { overflow-x: auto; margin: 8px 0 10px; -webkit-overflow-scrolling: touch; }
+.msg-table { border-collapse: collapse; width: 100%; font-size: 12.5px; background: #fff; border: 1px solid #E2E8F0; border-radius: 8px; overflow: hidden; }
+.msg-table th { background: #F1F5F9; color: #475569; font-weight: 600; text-align: left; padding: 8px 11px; border-bottom: 1px solid #E2E8F0; white-space: nowrap; }
+.msg-table td { padding: 7px 11px; border-bottom: 1px solid #F1F5F9; color: #334155; font-variant-numeric: tabular-nums; }
+.msg-table tbody tr:last-child td { border-bottom: none; }
+.msg-table tbody tr:hover { background: #F8FAFC; }
+.msg-line { line-height: 1.78; }
+.msg-gap { height: 7px; }
+.msg-text strong { color: #0F172A; font-weight: 650; }

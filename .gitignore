@@ -12,11 +12,47 @@ server/public/
 # Database
 server/data/*.db
 server/data/*.db-journal
+server/data/*.db-wal
+server/data/*.db-shm
+# 备份目录（含真实企业全量数据，严禁提交）
+server/data/backups/
+*.db.bak
 
 # Env
 .env
 .env.local
 .env.*.local
+
+# ============================================================
+# 敏感配置与本地数据 —— 严禁提交到 GitHub
+# 覆盖范围：大模型接入参数、MCP/数据源接口参数、认证凭据、
+#           JWT 密钥、真实企业明细数据
+# ============================================================
+
+# 环境变量（凭据唯一存放位置：仅本地）
+.env
+.env.*
+!/.env.example
+server/.env
+server/.env.*
+!server/.env.example
+web/.env
+web/.env.*
+!web/.env.example
+
+# 真实企业数据（来源：工商/信用数据源，含企业名称、法人、统一社会信用代码）
+server/prisma/real-fixtures.json
+data-import/
+*.csv
+
+# Prisma 编译产物（可能含种子口令）
+server/prisma/seed-data.js
+server/prisma/seed.js
+
+# 隧道/服务运行日志（可能含公网地址与会话令牌）
+cf.log
+server.log
+*.log
 
 # Logs
 logs/
@@ -40,3 +76,11 @@ coverage/
 .workbuddy/
 web/_probe.js
 庆阳市行政区划图.jpeg.bak
+
+# Cloudflare 隧道凭据与日志
+.cloudflared/
+**/.cloudflared/
+tunnel_token
+cf.log
+cf-named.log
+*.cfargotunnel.com

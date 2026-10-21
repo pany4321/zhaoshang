@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../utils/prisma.js'
 import { ok, parsePagination, fail } from '../utils/helper.js'
+import { audit, auditCtx } from '../utils/audit.js'
 import { RISK_DIMS } from '../utils/risk.js'
 
 export default async function (fastify: FastifyInstance) {
@@ -115,6 +116,9 @@ export default async function (fastify: FastifyInstance) {
       data: { status: 'doing', taskId: task.id },
     })
 
+    await audit('dispatch_risk', `RiskEvent:${id}`,
+      { taskId: task.id, assignee, dueDate: dueDate || null, eventLevel: event.level },
+      auditCtx(request))
     return ok({ event: updated, task }, '已分派处置任务')
   })
 

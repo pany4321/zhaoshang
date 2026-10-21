@@ -41,7 +41,6 @@
       <span v-if="engineSource === 'local'" class="source-badge" title="服务端未连接，当前展示内置演示数据（非服务器数据）">
         ⚠ 本地演示数据
       </span>
-      <button class="demo-btn" id="demoBtn">▶ 演示模式</button>
       <button class="header-fullscreen-btn" id="fullscreenBtn">全屏</button>
       <div class="header-divider"></div>
       <div class="user-area" title="点击退出登录" @click="onLogout">

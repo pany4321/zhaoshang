@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../utils/prisma.js'
 import { ok, parsePagination, fail } from '../utils/helper.js'
+import { audit, auditCtx } from '../utils/audit.js'
 import { RISK_DIMS } from '../utils/risk.js'
 
 export default async function (fastify: FastifyInstance) {
@@ -160,7 +161,7 @@ export default async function (fastify: FastifyInstance) {
       `一、企业概况`,
       `  ${ent.name}（统一社会信用代码：${ent.creditCode}），`,
       `  成立于 ${ent.found}，法定代表人 ${ent.legal}，注册资本 ${ent.regCapital}，`,
-      `  位于 ${ent.district.name}，属于 ${ent.industry.name} 行业，企业规模：${ent.scale}。`,
+      `  位于 ${ent.district?.name || '区县未定（外省招商线索）'}，属于 ${ent.industry?.name || '未分类'} 行业，企业规模：${ent.scale}。`,
       ``,
       `二、风险综合评估`,
       `  综合风险得分 ${ent.riskScore} 分，属于【${levelText[ent.riskLevel]}】。`,
@@ -247,16 +248,19 @@ export default async function (fastify: FastifyInstance) {
   })
 
   // 新建企业（招商新引进，风险/指标从零开始）
+  // districtId / industryId 可空：AI 推荐纳入的外省线索企业落地前无庆阳辖区归属
   fastify.post('/', { preHandler: [fastify.authenticate] }, async (request: any, reply) => {
-    const { name, districtId, industryId, investment = 0 } = request.body || {} as any
-    if (!name || !districtId || !industryId) {
-      return reply.code(400).send(fail('请填写企业名称、区县与行业'))
+    const { name, districtId, industryId, investment = 0, regCapital } = request.body || {} as any
+    if (!name) {
+      return reply.code(400).send(fail('请填写企业名称'))
     }
     const dup = await prisma.enterprise.findUnique({ where: { creditCode: `NEW-${name}` } })
       .catch(() => null)
     if (dup) return reply.code(400).send(fail('企业已存在'))
 
     const cnt = await prisma.enterprise.count()
+    // 注册资本优先取真实工商值（万元）；缺失时才退回投资额，避免把投资额当注册资本
+    const regCapitalWan = Number(regCapital) > 0 ? Math.round(Number(regCapital)) : Math.round(investment)
     const ent = await prisma.enterprise.create({
       data: {
         id: `E${String(cnt + 1).padStart(3, '0')}`,
@@ -267,9 +271,9 @@ export default async function (fastify: FastifyInstance) {
         scale: '小型企业',
         bizStatus: '在营',
         creditStatus: '良好',
-        regCapital: `${Math.round(investment)}万元`,
-        districtId,
-        industryId,
+        regCapital: `${regCapitalWan}万元`,
+        districtId: districtId || null,
+        industryId: industryId || null,
         isNew: true,
         newDate: new Date().toISOString().slice(0, 10),
         investment: Math.round(investment),
@@ -280,6 +284,8 @@ export default async function (fastify: FastifyInstance) {
         shareholders: { orderBy: { sort: 'asc' } },
       },
     })
+    await audit('create_enterprise', `Enterprise:${ent.id}`,
+      { name: ent.name, creditCode: ent.creditCode, districtId: ent.districtId }, auditCtx(request))
     return ok(ent, '企业已建档')
   })
 }

@@ -36,18 +36,20 @@ const SUITE = [
   ['verify_industry_responsive.cjs', '驾驶舱环图响应式', true],
   ['verify_profile_responsive.cjs', '画像页响应式', true],
   ['verify_policy_jump.cjs', '画像→政策跳转链路', true],
+  ['verify_ai_lead_admission.js', 'AI 推荐纳入字段真实性（区县/注册资本/产业）', true],
 ];
 
 // 需要运行中的 server 的脚本（server 未启动时 SKIP，不计失败）
 const SERVER_TESTS = new Set(['verify_web_api.cjs']);
 
 async function serverAlive() {
-  try {
-    const r = await fetch('http://localhost:3000/api/health', { signal: AbortSignal.timeout(2000) });
-    return r.ok;
-  } catch {
-    return false;
+  for (const base of ['http://localhost:5443', 'http://localhost:3000']) {
+    try {
+      const r = await fetch(base + '/api/health', { signal: AbortSignal.timeout(2000) });
+      if (r.ok) return true;
+    } catch { /* 试下一个端口 */ }
   }
+  return false;
 }
 
 (async () => {

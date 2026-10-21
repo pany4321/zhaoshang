@@ -382,22 +382,8 @@
         });
     }
     // AI 智能推荐按钮
+    // AI 智能推荐按钮（候选池由后端从真实企业库轮转取，不再用前端虚构名单）
     U.$("#pjAiRec").addEventListener("click", function () {
-      var remaining = M.PROSPECT_ENTERPRISES.length - _recommendedCount;
-      if (remaining <= 0) {
-        C.confirm(
-          {
-            title: "AI 智能推荐",
-            hideCancel: true,
-            html:
-              "当前候选企业已全部完成推荐。<br/><br/>系统候选池共 " +
-              M.PROSPECT_ENTERPRISES.length +
-              " 家目标企业，已全部纳入招商项目管理。",
-          },
-          function () {},
-        );
-        return;
-      }
       openAiRecommendDialog();
     });
     U.$("#pjAdd").addEventListener("click", function () {
@@ -780,8 +766,47 @@
     return amt >= 10000 ? (amt / 10000).toFixed(1) + "亿元" : amt + "万元";
   }
 
+  // 国标二级行业 → 系统内 12 个招商产业 key 的归并规则（关键词匹配，按序命中）
+  // 说明：国标二级行业与招商产业不是一一对应，本表是招商视角的归并（C 类推导），
+  // 只用于把外部线索企业挂到某个产业统计下；企业档案里的国标行业字段始终原样展示。
+  var NAT_TO_INDUSTRY = [
+    { kw: ["医药"], key: "biomed" },
+    { kw: ["农副食品", "食品制造"], key: "agrifood" },
+    { kw: ["农业", "林业", "牧业", "渔业", "种植"], key: "agrifood" },
+    { kw: ["化学原料", "化学制品", "化学纤维"], key: "chemical" },
+    { kw: ["石油", "煤炭", "燃料加工", "炼焦"], key: "oilgas" },
+    { kw: ["电力", "热力", "燃气"], key: "oilgas" },
+    { kw: ["电气机械", "电池", "光伏", "风电"], key: "neequip" },
+    { kw: ["汽车", "通用设备", "专用设备", "金属制品"], key: "genequip" },
+    { kw: ["计算机", "通信", "电子设备"], key: "software" },
+    { kw: ["互联网", "软件", "信息技术", "数据服务"], key: "software" },
+    { kw: ["建材", "非金属矿物"], key: "building" },
+    { kw: ["批发", "贸易", "零售"], key: "wholesale" },
+    { kw: ["道路运输", "物流", "仓储", "装卸"], key: "logistics" },
+    { kw: ["文化艺术", "旅游", "娱乐"], key: "culture" },
+    { kw: ["农业机械", "农林牧渔专用机械"], key: "agriequip" },
+  ];
+  // 返回 12 招商产业 key；映射不到返回空串（宁可归入未分类，也不硬塞默认产业）
+  function mapNationalIndustry(l2) {
+    var s = String(l2 || "");
+    if (!s) return "";
+    var exists = {};
+    for (var k = 0; k < M.INDUSTRIES.length; k++) exists[M.INDUSTRIES[k].key] = true;
+    for (var i = 0; i < NAT_TO_INDUSTRY.length; i++) {
+      var rule = NAT_TO_INDUSTRY[i];
+      for (var j = 0; j < rule.kw.length; j++) {
+        if (s.indexOf(rule.kw[j]) >= 0 && exists[rule.key]) return rule.key;
+      }
+    }
+    return "";
+  }
+
   // 新引进企业建档（轻量档案，同步进入企业名单；纯确定性构造，不消耗随机数流）
-  function buildNewEnterprise(name, districtKey, indKey, amountWan) {
+  // opts.regionName     企业真实所在地（省+市），外省线索企业无庆阳辖区时用于展示
+  // opts.realRegCapital 真实工商注册资本（万元）；缺省时才按投资额推导
+  // opts.industryName   国标二级行业原名（招商产业映射不到时保留原值展示）
+  function buildNewEnterprise(name, districtKey, indKey, amountWan, opts) {
+    opts = opts || {};
     var maxSeq = 0;
     M.ENTERPRISES.forEach(function (x) {
       var n = parseInt(String(x.id).replace(/\D/g, ""), 10);
@@ -791,18 +816,18 @@
     var dist = null,
       ind = null,
       i;
+    // 区县：仅命中庆阳 8 区县才落辖区。外省线索企业保持 null——不得默认顶替为西峰区
     for (i = 0; i < M.DISTRICTS.length; i++)
       if (M.DISTRICTS[i].key === districtKey) {
         dist = M.DISTRICTS[i];
         break;
       }
-    if (!dist) dist = M.DISTRICTS[0];
+    // 产业：仅命中 12 招商产业才落产业。映射不到保持 null——不得默认落到第一个产业
     for (i = 0; i < M.INDUSTRIES.length; i++)
       if (M.INDUSTRIES[i].key === indKey) {
         ind = M.INDUSTRIES[i];
         break;
       }
-    if (!ind) ind = M.INDUSTRIES[0];
     var amt = Math.round(amountWan) || 0;
     var scale =
       amt >= 50000 ? "大型企业" : amt >= 10000 ? "中型企业" : "小型企业";
@@ -823,7 +848,17 @@
       for (var zi = 0; zi < n; zi++) a.push(0);
       return a;
     }
-    var regCapital = Math.round(amt * 0.25);
+    // 注册资本：优先取真实工商值；仅在无真实值时按投资额推导（推导值仍属 C 类）
+    var realReg = Number(opts.realRegCapital);
+    var regCapital =
+      realReg > 0 ? Math.round(realReg) : Math.round(amt * 0.25);
+    var regionName = opts.regionName || "";
+    var districtName = dist
+      ? dist.name
+      : regionName
+        ? regionName + "（省外线索）"
+        : "区县未定";
+    var industryName = ind ? ind.name : opts.industryName || "未分类";
     return {
       id: "E" + (seq < 10 ? "00" : seq < 100 ? "0" : "") + seq,
       name: name,
@@ -832,13 +867,15 @@
       regCapital: regCapital,
       regCapitalFmt: fmtAmountWan(regCapital),
       found: todayStr,
-      industry: ind.key,
-      industryName: ind.name,
+      industry: ind ? ind.key : "",
+      industryName: industryName,
       scale: scale,
       tags: scale === "大型企业" ? ["新引进", "重点招商企业"] : ["新引进"],
-      district: dist.key,
-      districtName: dist.name,
-      address: dist.name + "产业园区（待补充）",
+      district: dist ? dist.key : "",
+      districtName: districtName,
+      address: dist
+        ? dist.name + "产业园区（待补充）"
+        : (regionName || "省外") + " · 待落地核实",
       isDeep: false,
       signDaysAgo: 0,
       overview: {
@@ -1116,107 +1153,83 @@
   }
 
   // ============================================================
-  // AI 智能推荐招商项目（模拟大模型多维度匹配）
-  // ============================================================
-  function openAiRecommendDialog() {
-    // 待推荐的候选企业（按顺序取 3-5 家未推荐过的）
-    var remaining = M.PROSPECT_ENTERPRISES.slice(_recommendedCount);
-    var recCount = Math.min(
-      remaining.length,
-      3 + Math.floor(Math.random() * 3),
-    );
-    var candidates = remaining.slice(0, recCount);
+  /* ------------------------------------------------------------
+   * AI 招商项目智能推荐 —— 真实外部企业池 + 大模型评估
+   *
+   * 候选企业来自后端 ProspectEnterprise（Doris 官方工商 + 国标行业）：
+   *   西北 6 省排除庆阳 · 存续 · 注册资本 5000万-5亿 · 属庆阳重点产业。
+   * 原实现用 mock.js 里 18 家虚构线索（华为数字能源、宁德时代等虚构落地项目），
+   * 且评分靠固定权重规则（投资30%+产业25%+实力20%+就业15%+税收10%），已整体废弃。
+   *
+   * 后端不可用时直接提示，不再生成虚构推荐 —— 宁可不出结果，也不给假结论。
+   * ---------------------------------------------------------- */
+  function callProjectRecommend(limit) {
+    var token = '';
+    try { token = localStorage.getItem('zs_token') || ''; } catch (e) {}
+    if (!token || typeof fetch !== 'function') {
+      return Promise.reject(new Error('未登录或无 fetch 能力'));
+    }
+    return fetch('/api/ai/project-recommend', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ limit: limit || 5 })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (j) {
+      if (j && j.code === 0 && j.data && (j.data.recommendations || []).length) return j.data;
+      throw new Error((j && j.msg) || '返回格式异常');
+    });
+  }
 
-    // 为每家候选企业生成 AI 评分和推荐理由
-    function scoreProspect(p) {
-      var score = 0;
-      var reasons = [];
-      // 投资强度（权重30%）
-      if (p.investWan >= 150000) {
-        score += 28;
-        reasons.push("投资规模超15亿元，重大产业项目");
-      } else if (p.investWan >= 80000) {
-        score += 24;
-        reasons.push("投资规模较大，产业链带动效应强");
-      } else if (p.investWan >= 30000) {
-        score += 20;
-        reasons.push("投资规模达标，符合市级招商标准");
-      } else {
-        score += 15;
-        reasons.push("投资规模适中，属于成长型项目");
-      }
-      // 产业契合度（权重25%）
-      var mainIndustries = [
-        "新能源",
-        "数据要素",
-        "生物医药",
-        "数字经济",
-        "装备制造",
-      ];
-      if (mainIndustries.indexOf(p.industry) >= 0) {
-        score += 24;
-        reasons.push(p.industry + "产业与庆阳市重点招商方向高度契合");
-      } else {
-        score += 16;
-        reasons.push(p.industry + "产业可填补区域产业链空白");
-      }
-      // 企业实力（权重20%）
-      if (p.scale === "大型企业") {
-        score += 19;
-        reasons.push("大型企业/行业龙头，抗风险能力强");
-      } else if (p.scale === "中型企业") {
-        score += 15;
-        reasons.push("中型企业，成长潜力大");
-      } else {
-        score += 10;
-        reasons.push("中小企业，需关注成长速度");
-      }
-      // 就业带动（权重15%）
-      if (p.employees >= 2000) {
-        score += 14;
-        reasons.push("预计带动就业2000人以上，社会效益显著");
-      } else if (p.employees >= 1000) {
-        score += 12;
-        reasons.push("就业带动能力强");
-      } else if (p.employees >= 500) {
-        score += 10;
-        reasons.push("就业规模达标");
-      } else {
-        score += 7;
-        reasons.push("就业带动有限");
-      }
-      // 税收贡献（权重10%）
-      var taxWan = parseInt(String(p.tax || "0").replace(/\D/g, ""), 10) || 0;
-      if (taxWan >= 10000) {
-        score += 9;
-        reasons.push("年纳税超亿元，财政贡献突出");
-      } else if (taxWan >= 5000) {
-        score += 8;
-        reasons.push("税收贡献较大");
-      } else if (taxWan >= 1000) {
-        score += 6;
-        reasons.push("税收贡献稳定");
-      } else {
-        score += 4;
-        reasons.push("税收贡献一般");
-      }
-      // 微调
-      score += Math.floor(Math.random() * 5) - 2;
-      score = Math.max(65, Math.min(98, score));
-      return {
-        prospect: p,
-        score: score,
-        reasons: reasons.slice(0, 4),
-        industry: p.industry,
-      };
+  async function openAiRecommendDialog() {
+    // 先取真实推荐结果，再走过程动画与渲染
+    var apiRes = null;
+    try {
+      apiRes = await callProjectRecommend(5);
+    } catch (err) {
+      console.warn('[project] 招商推荐不可用：', err && err.message ? err.message : err);
+      C.toast('AI 推荐暂不可用，请稍后重试', 'warning');
+      return;
     }
 
-    var recommendations = candidates.map(function (p) {
-      return scoreProspect(p);
+    var recommendations = apiRes.recommendations.map(function (r) {
+      return {
+        prospect: {
+          name: r.name,
+          region: r.province + r.city,
+          districtName: r.province + r.city,
+          // 国标二级行业原名（A 类，原样展示）
+          industryName: r.industryL2 || '—',
+          regCapitalYi: (r.regCapital / 10000).toFixed(2),
+          // 真实工商注册资本（万元），确认纳入时直接用作档案注册资本
+          regCapitalWan: r.regCapital,
+          foundDate: r.foundDate || '—',
+          approach: r.approach || '',
+          // 供「确认纳入」流程使用：
+          // 区县留空——外省线索企业落地前无庆阳辖区归属，不得顶替为西峰区；
+          // 产业按「国标二级 → 12 招商产业」映射，映射不到则留空（不硬塞默认产业）；
+          // 投资额暂以注册资本占位，从业人员/营收/税收无数据即留空，待初访后更新。
+          district: '',
+          industry: mapNationalIndustry(r.industryL2),
+          investWan: r.regCapital,
+          employees: 0,
+          revenue: '—',
+          tax: '—',
+          scale: r.regCapital >= 50000 ? '大型企业' : (r.regCapital >= 10000 ? '中型企业' : '小型企业'),
+          tags: r.industryL2 ? [r.industryL2] : []
+        },
+        score: r.score,
+        reasons: r.reasons || [],
+        industry: r.industryL2 || '—'
+      };
     });
-    recommendations.sort(function (a, b) {
-      return b.score - a.score;
-    });
+    recommendations.sort(function (a, b) { return b.score - a.score; });
+    var aiSummary = apiRes.summary || '';
+    _recommendedCount += recommendations.length;
 
     // 构建对话框
     var mask = U.el("div", { class: "modal-mask", style: "z-index:2000;" });
@@ -1279,8 +1292,8 @@
       {
         text:
           "   → 共检索 " +
-          M.PROSPECT_ENTERPRISES.length +
-          " 家目标企业的投资意向与产业标签",
+          (apiRes.poolSize || 0) +
+          " 家真实企业的工商信息与国标行业分类",
         delay: 600,
       },
       { text: "🗺️ 步骤 3/6：产业图谱匹配分析...", delay: 500 },
@@ -1288,14 +1301,14 @@
         text: "   → 匹配维度：新能源/数据要素/生物医药/数字经济/装备制造/现代农业",
         delay: 800,
       },
-      { text: "⚖️ 步骤 4/6：多维度综合评分...", delay: 500 },
+      { text: "⚖️ 步骤 4/6：大模型综合评估...", delay: 500 },
       {
-        text: "   → 权重分配：投资强度30% · 产业契合度25% · 企业实力20% · 就业带动15% · 税收贡献10%",
+        text: "   → 评估维度：国标行业契合度 · 注册资本规模 · 经营所在地 · 产业链缺环（由模型综合判断，无固定权重）",
         delay: 900,
       },
-      { text: "🔍 步骤 5/6：去重与风险初筛...", delay: 400 },
+      { text: "🔍 步骤 5/6：区位与产业方向校核...", delay: 400 },
       {
-        text: "   → 排除已在库企业，筛除高风险失信主体，校验产业政策符合性",
+        text: "   → 校验所在地与庆阳产业方向匹配度，剔除重复候选，结果标记为待人工核验",
         delay: 700,
       },
       { text: "🎯 步骤 6/6：生成推荐清单...", delay: 300 },
@@ -1350,28 +1363,20 @@
           "</div>" +
           '<div style="background:#F8FAFC;border:1px solid var(--c-border-light);border-radius:8px;padding:12px;">' +
           '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;margin-bottom:10px;">' +
-          '<div><span style="color:#94A3B8;">所属行业：</span>' +
+          '<div><span style="color:#94A3B8;">国标行业：</span>' +
           U.esc(r.industry) +
           "</div>" +
-          '<div><span style="color:#94A3B8;">企业规模：</span>' +
-          U.esc(r.prospect.scale) +
+          '<div><span style="color:#94A3B8;">所在地：</span>' +
+          U.esc(r.prospect.districtName) +
           "</div>" +
-          '<div><span style="color:#94A3B8;">意向投资：</span>' +
-          U.esc(
-            r.prospect.investWan >= 10000
-              ? (r.prospect.investWan / 10000).toFixed(0) + "亿元"
-              : r.prospect.investWan + "万元",
-          ) +
+          '<div><span style="color:#94A3B8;">注册资本：</span>' +
+          U.esc(r.prospect.regCapitalYi) + " 亿元" +
           "</div>" +
-          '<div><span style="color:#94A3B8;">预计就业：</span>' +
-          r.prospect.employees.toLocaleString() +
-          " 人</div>" +
-          '<div><span style="color:#94A3B8;">年税收：</span>' +
-          U.esc(r.prospect.tax) +
+          '<div><span style="color:#94A3B8;">成立年份：</span>' +
+          U.esc(String(r.prospect.foundDate || "—").slice(0, 4)) +
           "</div>" +
-          '<div><span style="color:#94A3B8;">来源渠道：</span>' +
-          U.esc(r.prospect.source) +
-          "</div>" +
+          '<div><span style="color:#94A3B8;">数据来源：</span>工商公示</div>' +
+          '<div><span style="color:#94A3B8;">接洽状态：</span>待初访</div>' +
           "</div>" +
           '<div style="font-size:12px;color:#475569;line-height:1.8;">' +
           '<div style="font-weight:600;color:#0F172A;margin-bottom:4px;">推荐理由：</div>' +
@@ -1381,44 +1386,39 @@
             })
             .join("<br/>") +
           "</div>" +
-          '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--c-border-light);font-size:11px;color:#94A3B8;">' +
-          "💡 " +
-          U.esc(r.prospect.strength) +
+          '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--c-border-light);font-size:11px;color:#475569;">' +
+          "🎯 接洽建议：" +
+          U.esc(r.prospect.approach || "建议由招商专员电话初访核实") +
           "</div>" +
+          "</div>" +
+          "</div>";
           "</div>" +
           "</div>";
       });
 
-      // 总体统计
-      var totalInv = recommendations.reduce(function (s, r) {
-        return s + r.prospect.investWan;
-      }, 0);
-      var totalEmp = recommendations.reduce(function (s, r) {
-        return s + r.prospect.employees;
-      }, 0);
+      // 总体统计（真实口径：不臆造投资额/就业数据）
+      var provCount = {};
+      recommendations.forEach(function (r) { provCount[r.prospect.districtName] = 1; });
+      var avgScore = Math.round(
+        recommendations.reduce(function (s, r) { return s + r.score; }, 0) / recommendations.length
+      );
       resultsHtml +=
         '<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:14px;margin-bottom:8px;">' +
         '<div style="font-weight:600;color:#15803D;margin-bottom:6px;">📊 推荐概览</div>' +
         '<div style="font-size:12px;color:#475569;line-height:2;">' +
+        (aiSummary ? U.esc(aiSummary) + "<br/><br/>" : "") +
         "本次推荐 <b>" +
         recommendations.length +
-        "</b> 家优质目标企业<br/>" +
-        "意向总投资 <b>" +
-        (totalInv >= 10000
-          ? (totalInv / 10000).toFixed(1) + "亿元"
-          : totalInv + "万元") +
-        "</b><br/>" +
-        "预计带动就业 <b>" +
-        totalEmp.toLocaleString() +
-        "</b> 人<br/>" +
-        '平均推荐评分 <b style="color:#16A34A;">' +
-        Math.round(
-          recommendations.reduce(function (s, r) {
-            return s + r.score;
-          }, 0) / recommendations.length,
-        ) +
+        "</b> 家目标企业<br/>" +
+        "覆盖地区 <b>" +
+        Object.keys(provCount).length +
+        "</b> 个省市<br/>" +
+        '平均契合度 <b style="color:#16A34A;">' +
+        avgScore +
         "</b> 分<br/>" +
-        "置信度 <b>91%</b> · 模型版本 deepseek-v4-pro" +
+        "候选池共 <b>" +
+        (apiRes.poolSize || 0) +
+        "</b> 家真实企业（数据源：工商公示 + 国标行业分类）" +
         "</div>" +
         "</div>";
 
@@ -1458,25 +1458,28 @@
 
       recommendations.forEach(function (r, idx) {
         var p = r.prospect;
-        // 1. 加入企业库（轻量档案）
+        // 1. 加入企业库（轻量档案）——真实注册资本透传；区县/产业允许为空（外省线索）
         var newEnt = buildNewEnterprise(
           p.name,
           p.district,
           p.industry,
           p.investWan,
+          {
+            regionName: p.region,
+            realRegCapital: p.regCapitalWan,
+            industryName: p.industryName,
+          },
         );
-        // 补充更多信息
+        // 补充更多信息（无数据即留空，不做估算）
         newEnt.overview.employees = p.employees;
         newEnt.overview.revenue = p.revenue;
         newEnt.overview.tax = p.tax;
         newEnt.tags = p.tags || [];
         newEnt.scale = p.scale;
-        // 移到企业列表最前面（最新加入的排前面）
+        // 置顶展示（新建档案此前未真正进入企业名单，会与「纳入企业库」语义不符）
         var entIdx = M.ENTERPRISES.indexOf(newEnt);
-        if (entIdx > 0) {
-          M.ENTERPRISES.splice(entIdx, 1);
-          M.ENTERPRISES.unshift(newEnt);
-        }
+        if (entIdx >= 0) M.ENTERPRISES.splice(entIdx, 1);
+        M.ENTERPRISES.unshift(newEnt);
 
         // 2. 创建招商项目（线索对接阶段）
         maxProjSeq++;
@@ -1502,7 +1505,9 @@
           risk: "正常",
           riskLevel: "blue",
           district: p.district,
-          districtName: p.districtName,
+          districtName: p.district
+            ? p.districtName
+            : (p.region || "") + "（省外线索）",
           timeline: [
             {
               date: todayStr,
@@ -1520,12 +1525,14 @@
                 " 分。",
             },
           ],
-          promises: [
-            "投资 " + amountStr + "元",
-            "就业 " + p.employees.toLocaleString() + " 人",
-            "达产营收 " + p.revenue,
-            "税收 " + p.tax,
-          ],
+          // 承诺项只列已知信息：就业/营收/税收无数据即不写，避免出现「就业 0 人」「营收 —」
+          promises: (function () {
+            var arr = ["投资 " + amountStr + "元（暂以注册资本计，待初访核实）"];
+            if (p.employees > 0) arr.push("就业 " + p.employees.toLocaleString() + " 人");
+            if (p.revenue && p.revenue !== "—") arr.push("达产营收 " + p.revenue);
+            if (p.tax && p.tax !== "—") arr.push("税收 " + p.tax);
+            return arr;
+          })(),
           source: "AI智能推荐",
         };
         M.PROJECTS.unshift(newProject);

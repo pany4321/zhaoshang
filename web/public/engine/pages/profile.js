@@ -9,6 +9,32 @@
   var M = window.MOCK;
   var mkChart = APP.mkChart;
 
+  /* ------------------------------------------------------------
+   * AI 综合研判：调后端 /api/ai/judge 拿结构化结论
+   * 后端基于该企业真实数据生成；失败时保留本地算法结论，不阻断演示。
+   * ---------------------------------------------------------- */
+  function callJudge(entId) {
+    var token = '';
+    try { token = localStorage.getItem('zs_token') || ''; } catch (e) {}
+    if (!token || typeof fetch !== 'function') {
+      return Promise.reject(new Error('未登录或无 fetch 能力'));
+    }
+    return fetch('/api/ai/judge', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ enterpriseId: entId })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (j) {
+      if (j && j.code === 0 && j.data && j.data.summary) return j.data;
+      throw new Error((j && j.msg) || '返回格式异常');
+    });
+  }
+
   var currentTab = 0;
   var kwState = { active: false, pos: null };
   var listScrollTop = 0;
@@ -241,6 +267,125 @@
         '<td><div class="progress"><div class="bar" style="width:' + s.ratio + '%;"></div></div></td></tr>';
     }).join('');
 
+    // 经营资质与信用硬指标（真实数据：工商/司法/知产/招投标）
+    var hardMetrics = (function () {
+      var items = [
+        { label: '专利', val: e.patentCount || 0, unit: '项', sub: (e.inventionCount ? '含发明专利 ' + e.inventionCount + ' 项' : ''), color: '#2563EB' },
+        { label: '商标', val: e.trademarkCount || 0, unit: '件', sub: '', color: '#7C3AED' },
+        { label: '招投标参与', val: e.bidCount || 0, unit: '次', sub: '', color: '#0EA5E9' },
+        { label: '司法案件', val: e.judicialCount || 0, unit: '件', sub: '', color: '#F59E0B' },
+        { label: '被执行', val: e.zhixingCount || 0, unit: '条', sub: '', color: (e.zhixingCount > 0 ? '#F97316' : '#10B981') },
+        { label: '失信记录', val: e.shixinCount || 0, unit: '条', sub: '', color: (e.shixinCount > 0 ? '#EF4444' : '#10B981') }
+      ];
+      return '<div style="margin-top:20px;font-weight:600;color:#0F172A;margin-bottom:10px;font-size:14px;">经营资质与信用硬指标</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">' +
+        items.map(function (m) {
+          return '<div style="border:1px solid #E2E8F0;border-radius:8px;padding:12px 14px;background:#fff;">' +
+            '<div style="font-size:12px;color:#64748B;margin-bottom:6px;">' + m.label + '</div>' +
+            '<div style="font-size:20px;font-weight:700;color:' + m.color + ';line-height:1.2;">' + m.val +
+            '<span style="font-size:12px;font-weight:400;color:#94A3B8;margin-left:3px;">' + m.unit + '</span></div>' +
+            (m.sub ? '<div style="font-size:11px;color:#94A3B8;margin-top:4px;">' + m.sub + '</div>' : '') +
+            '</div>';
+        }).join('') +
+        '</div>' +
+        '<div style="margin-top:10px;font-size:11px;color:#94A3B8;">数据来源：工商公示 / 司法公开 / 知识产权登记 / 招投标公示</div>';
+    })();
+
+    // 年报公示财务（真实数据：工商年报；未公示的企业不渲染本区块）
+    var finHtml = (function () {
+      if (!e.finYear) return '';
+      var fmt = function (v) {
+        if (v == null) return '—';
+        var n = Number(v);
+        if (Math.abs(n) >= 10000) return (n / 10000).toFixed(2) + ' 亿元';
+        return n.toLocaleString('zh-CN', { maximumFractionDigits: 1 }) + ' 万元';
+      };
+      var items = [
+        { label: '资产总额', val: fmt(e.assetTotal), color: '#0F172A' },
+        { label: '净利润', val: fmt(e.netProfit), color: (Number(e.netProfit) < 0 ? '#EF4444' : '#10B981') },
+        { label: '年报年份', val: e.finYear + ' 年', color: '#2563EB' }
+      ];
+      return '<div style="margin-top:20px;font-weight:600;color:#0F172A;margin-bottom:10px;font-size:14px;">年报公示财务</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">' +
+        items.map(function (m) {
+          return '<div style="border:1px solid #E2E8F0;border-radius:8px;padding:12px 14px;background:#fff;">' +
+            '<div style="font-size:12px;color:#64748B;margin-bottom:6px;">' + m.label + '</div>' +
+            '<div style="font-size:18px;font-weight:700;color:' + m.color + ';line-height:1.3;">' + U.esc(m.val) + '</div>' +
+            '</div>';
+        }).join('') +
+        '</div>' +
+        '<div style="margin-top:10px;font-size:11px;color:#94A3B8;">数据来源：国家企业信用信息公示系统 ' + U.esc(e.finYear) + ' 年度报告</div>';
+    })();
+
+    // 企业档案记录（真实数据：行政处罚/经营异常/股权出质/动产抵押/分支机构）
+    var recordsHtml = (function () {
+      var recs = e.records || [];
+      if (!recs.length) return '';
+      var TYPE_NAME = { punish: '行政处罚', abnormal: '经营异常', pledge: '股权出质', chattel: '动产抵押', branch: '分支机构' };
+      var TYPE_COLOR = { punish: '#EF4444', abnormal: '#F59E0B', pledge: '#7C3AED', chattel: '#0EA5E9', branch: '#10B981' };
+      var parse = function (s) {
+        if (!s) return {};
+        try { return JSON.parse(s); } catch (err) { return {}; }
+      };
+      var groups = {};
+      recs.forEach(function (r) { (groups[r.type] = groups[r.type] || []).push(r); });
+
+      var html = '<div style="margin-top:20px;font-weight:600;color:#0F172A;margin-bottom:10px;font-size:14px;">企业档案记录</div>';
+      Object.keys(TYPE_NAME).forEach(function (t) {
+        var list = groups[t];
+        if (!list || !list.length) return;
+        html += '<div style="margin-bottom:14px;">' +
+          '<div style="font-size:13px;font-weight:600;color:' + TYPE_COLOR[t] + ';margin-bottom:6px;">' +
+          TYPE_NAME[t] + ' <span style="color:#94A3B8;font-weight:400;">' + list.length + ' 条</span></div>' +
+          '<table class="tbl"><thead><tr><th>事项</th><th>详情</th><th class="num" style="width:110px;">日期</th></tr></thead><tbody>' +
+          list.slice(0, 8).map(function (r) {
+            var d = parse(r.detail);
+            var kv = Object.keys(d).filter(function (k) { return d[k] && d[k] !== '—'; })
+              .map(function (k) { return k + '：' + d[k]; }).join('；');
+            return '<tr><td>' + U.esc(r.title) + '</td>' +
+              '<td style="font-size:12px;color:#475569;">' + U.esc(kv.length > 170 ? kv.slice(0, 170) + '…' : kv) + '</td>' +
+              '<td class="num">' + U.esc(r.occurDate || '—') + '</td></tr>';
+          }).join('') +
+          '</tbody></table>' +
+          (list.length > 8 ? '<div style="font-size:11px;color:#94A3B8;margin-top:4px;">共 ' + list.length + ' 条，展示最近 8 条</div>' : '') +
+          '</div>';
+      });
+      return html;
+    })();
+
+    // 司法案件明细（真实案号/案由/审判程序）
+    var casesHtml = (function () {
+      var cs = e.judicialCases || [];
+      if (!cs.length) {
+        return '<div style="margin-top:20px;font-weight:600;color:#0F172A;margin-bottom:8px;font-size:14px;">司法案件明细</div>' +
+          '<div style="font-size:12px;color:#94A3B8;padding:14px 0;">该企业暂无公开司法案件记录。</div>';
+      }
+      var roleColor = function (r) {
+        if (!r) return '#94A3B8';
+        if (r.indexOf('被执行') >= 0) return '#EF4444';
+        if (r.indexOf('被告') >= 0) return '#F97316';
+        if (r.indexOf('原告') >= 0) return '#10B981';
+        return '#64748B';
+      };
+      var rows = cs.map(function (c) {
+        return '<tr>' +
+          '<td style="font-size:12px;color:#334155;">' + U.esc(c.caseCode || '—') + '</td>' +
+          '<td style="font-size:12px;">' + U.esc(c.caseReason || '—') + '</td>' +
+          '<td style="font-size:12px;font-weight:600;color:' + roleColor(c.partyRole) + ';">' + U.esc(c.partyRole || '—') + '</td>' +
+          '<td style="font-size:12px;color:#64748B;">' + U.esc(c.procedure || '—') + '</td>' +
+          '<td style="font-size:12px;color:#64748B;white-space:nowrap;">' + U.esc(c.trialTime || '—') + '</td>' +
+          '</tr>';
+      }).join('');
+      var total = e.judicialCount || cs.length;
+      return '<div style="margin-top:20px;font-weight:600;color:#0F172A;margin-bottom:8px;font-size:14px;">司法案件明细' +
+        ' <span style="font-size:12px;font-weight:400;color:#94A3B8;">共 ' + total + ' 件，展示最近 ' + cs.length + ' 件</span></div>' +
+        '<div style="overflow-x:auto;"><table class="tbl"><thead><tr>' +
+        '<th style="min-width:190px;">案号</th><th style="min-width:110px;">案由</th>' +
+        '<th style="min-width:110px;">当事人角色</th><th style="min-width:90px;">审判程序</th><th style="min-width:90px;">审判时间</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+        '<div style="margin-top:8px;font-size:11px;color:#94A3B8;">数据来源：中国裁判文书网 / 全国法院被执行人信息（公开数据）</div>';
+    })();
+
     // 政策匹配
     var policyHtml = (e.policies || []).slice(0, 6).map(function (pname) {
       var item = M.POLICY_LIB.filter(function (pl) { return pl.name === pname; })[0];
@@ -254,7 +399,7 @@
       }
       return '<div class="policy-item" data-policy-id="' + (item.code || item.id) + '">' +
         '<div class="pi-name">' + U.esc(item.name) + '</div>' +
-        '<div class="pi-meta"><span>' + U.esc(item.dept) + '</span><span>' + U.esc(item.level) + '</span></div>' +
+        '<div class="pi-meta"><span>' + U.esc(item.dept) + '</span><span>' + U.esc(item.level) + '</span><span title="发布日期">📅 ' + (item.date ? U.esc(item.date) : '未注明') + '</span></div>' +
         '<div class="pi-desc">' + U.esc(item.apply) + '</div>' +
         '<div class="pi-link">查看政策详情 →</div>' +
       '</div>';
@@ -279,6 +424,15 @@
         eiRow('注册资本', e.overview.regCapital) +
         eiRow('企业规模', e.scale) +
         eiRow('所属行业', e.industryName, 'wide') +
+        // 官方国标行业（company_industry，A 类事实数据）；与上面的招商产业分类并存。
+        // 招商口径用于产业分析，国标口径用于对上统计与外部核验。
+        (e.nationalIndustry
+          ? eiRow('国标行业',
+              (e.nationalIndustryL1 ? e.nationalIndustryL1 + ' / ' : '') +
+              e.nationalIndustry +
+              (e.nationalIndustryL3 ? ' / ' + e.nationalIndustryL3 : ''),
+              'wide')
+          : '') +
         eiRow('经营状态', e.status.biz) +
         eiRow('注册地址', e.address, 'wide') +
       '</div>';
@@ -347,6 +501,10 @@
             '<div style="font-weight:600;color:#0F172A;margin-bottom:8px;font-size:14px;">股东结构</div>' +
             '<table class="tbl"><thead><tr><th>股东名称</th><th class="num" style="width:100px;">持股比例</th><th style="width:200px">比例</th></tr></thead><tbody>' + shHtml + '</tbody></table>' +
             '<div style="margin-top:16px;font-size:12px;color:#94A3B8;">完整关系网络请查看「产业关系图谱」模块。</div>' +
+            hardMetrics +
+            finHtml +
+            recordsHtml +
+            casesHtml +
           '</div>' +
           // 4 企业风险
           '<div class="tab-pane" data-pane="4" style="display:none;">' + riskPaneHtml(e) + '</div>' +
@@ -486,6 +644,60 @@
     };
   }
 
+  /* ------------------------------------------------------------
+   * AI 风险评估：调后端 /api/ai/risk-assess 取真实大模型解读
+   *
+   * 与「AI综合研判」的区别：本接口只做**定性判断**（该维度为什么高、怎么处置），
+   * 不产出风险分数——分数一律取档案原值，保证同一企业同一天结果可复现、可审计。
+   * 后端不可用时回退 buildAssessResult()，不阻断演示。
+   * ---------------------------------------------------------- */
+  function callRiskAssess(entId) {
+    var token = '';
+    try { token = localStorage.getItem('zs_token') || ''; } catch (e) {}
+    if (!token || typeof fetch !== 'function') {
+      return Promise.reject(new Error('未登录或无 fetch 能力'));
+    }
+    return fetch('/api/ai/risk-assess', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ enterpriseId: entId })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (j) {
+      if (j && j.code === 0 && j.data && j.data.summary) return j.data;
+      throw new Error((j && j.msg) || '返回格式异常');
+    });
+  }
+
+  // 把后端返回结构适配为 assessReportHtml 期望的形状
+  function buildAssessFromApi(e, res) {
+    // 分数取档案原值，不让大模型参与打分
+    var dims = {};
+    M.RISK_DIMS.forEach(function (d) {
+      if (d.weight > 0) dims[d.key] = e.risks[d.key] || 0;
+    });
+    var score = M.calcRiskScore(dims);
+    var level = M.scoreToLevel(score);
+    var byKey = {};
+    (res.dimensions || []).forEach(function (x) { if (x && x.key) byKey[x.key] = x; });
+    return {
+      dims: dims,
+      score: score,
+      level: level,
+      confidence: res.confidence || 85,
+      time: U.fmtDateTime(new Date()),
+      summary: res.summary || '',
+      dimsDetail: byKey,     // 8 维 AI 判断（level + comment），仅真实结果有
+      topRisks: res.topRisks || [],
+      advice: res.advice || [],
+      latencyMs: res.latencyMs || 0
+    };
+  }
+
   // AI 风险评估：弹出对话框模拟智能体多步研判，完成后自动刷新页签数据；用户主动关闭，视图位置不变
   APP.runProfileRiskAssess = function () {
     var e = M.entById(state.ent);
@@ -495,8 +707,19 @@
     var eid = e.id;
     var closed = false;
 
-    // 先算好结果，过程日志可引用最终数值（模拟“推理已完成、正在回放过程”）
+    // 先算好本地结果：既作为兜底，也供过程日志引用
     var R = buildAssessResult(e);
+    var realR = null;      // 大模型真实解读（到达后取代 R）
+    var finished = false;
+
+    // 与进度动画并行发起真实调用：真实结果一到就出报告（总用时 = 真实耗时）；
+    // 若调用失败则继续走动画，动画结束用本地算法结果兜底。
+    callRiskAssess(eid).then(function (res) {
+      realR = buildAssessFromApi(e, res);
+      if (alive()) finish();
+    }).catch(function (err) {
+      console.warn('[profile] 风险评估大模型不可用，使用本地算法：', err && err.message ? err.message : err);
+    });
 
     // ---- 对话框骨架（复用确认弹窗样式）----
     var mask = U.el('div', { class: 'modal-mask' });
@@ -635,14 +858,10 @@
       if (slot) slot.innerHTML = stepsHtml(runIdx);
     }
 
-    function finish() {
+    // 渲染评估结果（真实结果到达后可能被二次调用覆盖本地结论）
+    function applyResult(use) {
       if (!alive()) return;
-      aiAssess[eid] = R;
-
-      // 停止用时指示并定格
-      if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
-      var el = box.querySelector('#aiAsmElapsed');
-      if (el) el.textContent = '总用时 ' + ((Date.now() - startAt) / 1000).toFixed(1) + ' 秒';
+      aiAssess[eid] = use;
 
       // 自动更新页签内数据（对话框后方同步刷新）
       var pane = document.querySelector('.tab-pane[data-pane="4"]');
@@ -650,22 +869,51 @@
 
       // 对话框内展示评估报告
       endAnalysisLayout();
-      bodyEl.innerHTML = assessReportHtml(e, R);
+      bodyEl.innerHTML = assessReportHtml(e, use);
       var doneBtn = bodyEl.querySelector('#aiAsmDone');
       if (doneBtn) doneBtn.addEventListener('click', close);
+    }
+
+    function finish() {
+      if (!alive()) return;
+      finished = true;
+      // 提前出报告时清掉未播完的过程定时器
+      clearAssessTimers();
+
+      // 停止用时指示并定格
+      if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+      var el = box.querySelector('#aiAsmElapsed');
+      if (el) el.textContent = '总用时 ' + ((Date.now() - startAt) / 1000).toFixed(1) + ' 秒';
+
+      applyResult(realR || R);
     }
   };
 
   // 评估报告（对话框内展示）
   function assessReportHtml(e, as) {
+    var hasAI = !!as.dimsDetail;
     var dimRows = M.RISK_DIMS.filter(function (d) { return d.weight > 0; }).map(function (d) {
       var nv = as.dims[d.key];
       var ov = e.risks[d.key] || 0;
+      if (hasAI) {
+        // 真实结果：分数不参与模型推理（保证可复现），表格改为展示 AI 的定性判断与解读
+        var det = as.dimsDetail[d.key] || {};
+        var lvName = det.level === 'high' ? '高' : (det.level === 'medium' ? '中' : '低');
+        var lvColor = det.level === 'high' ? '#e03131' : (det.level === 'medium' ? '#B45309' : '#22C55E');
+        return '<tr><td>' + U.esc(d.name) + '</td><td class="num">' + ov + '</td>' +
+          '<td><span style="color:' + lvColor + ';font-weight:600;">' + lvName + '</span></td>' +
+          '<td style="font-size:12px;color:#475569;">' + U.esc(det.comment || '—') + '</td></tr>';
+      }
       var dv = nv - ov;
       var mark = dv === 0 ? '<span style="color:#94A3B8;">持平</span>'
         : (dv > 0 ? '<span style="color:#e03131;">↑' + dv + '</span>' : '<span style="color:#22C55E;">↓' + (-dv) + '</span>');
       return '<tr><td>' + U.esc(d.name) + '</td><td class="num">' + ov + '</td><td class="num">' + nv + '</td><td class="num">' + mark + '</td></tr>';
     }).join('');
+
+    var dimHead = hasAI
+      ? '<tr><th>风险维度</th><th class="num">档案值</th><th>AI 判断</th><th>解读</th></tr>'
+      : '<tr><th>风险维度</th><th class="num">档案值</th><th class="num">本次评估</th><th class="num">变化</th></tr>';
+    var dimTitle = hasAI ? '各维度 AI 判断（分数不参与模型推理，保证可复现）' : '维度评分更新';
 
     return '<div class="ai-panel">' +
         '<div class="ai-title">' +
@@ -674,8 +922,8 @@
         '</div>' +
         '<div class="ai-body">' +
           '<div class="ai-sec"><p>' + U.esc(as.summary) + '</p></div>' +
-          '<div class="ai-sec"><h4>维度评分更新</h4>' +
-            '<table class="tbl" style="margin-top:4px;"><thead><tr><th>风险维度</th><th class="num">档案值</th><th class="num">本次评估</th><th class="num">变化</th></tr></thead><tbody>' + dimRows + '</tbody></table>' +
+          '<div class="ai-sec"><h4>' + dimTitle + '</h4>' +
+            '<table class="tbl" style="margin-top:4px;"><thead>' + dimHead + '</thead><tbody>' + dimRows + '</tbody></table>' +
           '</div>' +
           '<div class="ai-sec"><h4>主要风险点</h4><ul>' +
             as.topRisks.map(function (s) { return '<li>' + U.esc(s) + '</li>'; }).join('') +
@@ -761,7 +1009,9 @@
     '评估多维风险敞口',
     '生成综合研判结论'
   ];
-  var JUDGE_TOTAL = 42000;
+  // 过程动画时长：仅作“正在分析”的可视化，不再是真实结论的等待时长。
+  // 真实耗时由大模型返回决定（通常 8-15 秒），顶部计时器显示实际用时。
+  var JUDGE_TOTAL = 9000;
 
   // ---- 扩展维度模拟数据（一份参数化模拟数据集，按企业 id 稳定生成；纯虚构）----
   var SIM_POOL = {
@@ -913,6 +1163,26 @@
     var eid = e.id;
     var closed = false;
     var J = buildJudgeResult(e);
+
+    // 真实研判与大模型并行：过程动画只负责展示，最终结论一律以真实返回为准。
+    // 失败时保留本地算法结论（不阻断演示），顶部计时器始终显示真实墙钟耗时。
+    var judgeDone = false;
+    var judgePromise = callJudge(eid)
+      .then(function (res) {
+        if (res && res.summary) {
+          J.summary = res.summary;
+          if (res.strengths && res.strengths.length) J.strengths = res.strengths;
+          if (res.risks && res.risks.length) J.risks = res.risks;
+          if (res.confidence) J.confidence = res.confidence;
+        }
+        judgeDone = true;
+        return J;
+      })
+      .catch(function (err) {
+        console.warn('[profile] 大模型研判不可用，保留本地结论：', err && err.message ? err.message : err);
+        judgeDone = true;
+        return J;
+      });
 
     var mask = U.el('div', { class: 'modal-mask' });
     mask.style.zIndex = 10000;
@@ -1079,14 +1349,33 @@
       [39300, function () { log('· 推理完成 → 核心优势与关注风险清单已生成'); }],
       [40200, function () { log('· 数据来源标注与置信度校验通过'); }],
       [41200, function () { log('· 报告排版生成与脱敏检查完成'); }],
-      [JUDGE_TOTAL, function () { finish(); }]
+      [JUDGE_TOTAL, function () { awaitJudge(); }]
     ];
-    plan.forEach(function (item) {
-      assessLater(function () { if (alive()) item[1](); }, item[0]);
+    // plan 的时间点按 42 秒编排，整体等比压缩到 JUDGE_TOTAL；
+    // 最后一项 JUDGE_TOTAL 是兜底出口，不参与缩放
+    var PLAN_BASE = 42000;
+    var planScale = JUDGE_TOTAL / PLAN_BASE;
+    plan.forEach(function (item, idx) {
+      var t = idx === plan.length - 1 ? JUDGE_TOTAL : Math.round(item[0] * planScale);
+      assessLater(function () { if (alive()) item[1](); }, t);
     });
+
+    // 真实结论一到就出报告，不再干等动画播完（总用时 = 大模型真实耗时）
+    judgePromise.then(function () { if (alive()) finish(); });
+
+    // 动画结束节点：大模型已返回则直接出报告；否则保持过程视图，等真实结果
+    function awaitJudge() {
+      if (judgeDone) { finish(); return; }
+      log('· 大模型推理中，等待真实结论返回…', '#1D4ED8', true);
+      var hint = box.querySelector('#jdElapsed');
+      if (hint) hint.textContent = '等待大模型返回…';
+      judgePromise.then(function () { if (alive()) finish(); });
+    }
 
     function finish() {
       if (!alive()) return;
+      // 提前出报告时清掉未播完的过程定时器，避免继续往报告页写日志
+      clearAssessTimers();
       aiJudge[eid] = J;
 
       if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
@@ -1097,7 +1386,7 @@
       var pane = document.querySelector('.tab-pane[data-pane="5"]');
       if (pane && state.ent === eid) pane.innerHTML = judgePaneHtml(M.entById(eid));
 
-      // 对话框内展示完整综合研判报告
+      // 对话框内展示完整综合研判报告（此时 J 已合并真实结论）
       bodyEl.style.display = '';
       bodyEl.innerHTML = judgeReportHtml(M.entById(eid), J);
       bodyEl.scrollTop = 0;
@@ -1654,10 +1943,16 @@
     var j = aiJudge[e.id] || e.ai;
     if (!j) { C.toast('暂无可导出的研判报告，请先点击「重新分析研判」', 'warning'); return; }
 
-    // jsPDF 缺失时回退到打印视图（另存为 PDF）
-    if (!(window.jspdf && window.jspdf.jsPDF)) { printReportView(e, j); return; }
-    C.toast('正在生成文字版 PDF…', 'info');
-    ensurePdfFont()
+    // PDF 依赖（jspdf + autotable + 中文字体子集，约 813KB）按需加载，不进首屏关键路径。
+    // Vue 壳通过 APP.ensurePdfLibs 提供加载器；纯前端 demo 无此钩子时降级为打印视图。
+    var pdfReady = (window.jspdf && window.jspdf.jsPDF)
+      ? Promise.resolve()
+      : (typeof APP.ensurePdfLibs === 'function'
+          ? APP.ensurePdfLibs()
+          : Promise.reject(new Error('jsPDF 不可用')));
+    C.toast('正在准备 PDF 组件…', 'info');
+    pdfReady
+      .then(function () { C.toast('正在生成文字版 PDF…', 'info'); return ensurePdfFont(); })
       .then(function () { return buildPdfDoc(e, j); })
       .then(function (doc) {
         doc.save(e.name + '_企业综合研判报告_' + reportDateStr() + '.pdf');

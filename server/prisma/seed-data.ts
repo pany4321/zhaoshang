@@ -8,7 +8,7 @@
  * ============================================================ */
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 import { fileURLToPath } from 'url'
 import path from 'path'
 
@@ -22,20 +22,64 @@ interface Fixtures {
   projects: Record<string, any>[]
   tasks: Record<string, any>[]
   policies: Record<string, any>[]
+  judicialCases?: Record<string, any>[]
 }
 
 // 每次调用时重新读取：fixtures.json 更新后无需重启 server 即生效
-function loadFixtures(): Fixtures {
-  return JSON.parse(
-    readFileSync(path.join(__dirname, 'demo-fixtures.json'), 'utf-8'),
-  )
+// 优先读取 real-fixtures.json（真实工商数据 + 规则推导），缺失时回退 demo-fixtures.json
+function loadFixtures(): { fixtures: Fixtures; source: 'real' | 'demo' } {
+  const realPath = path.join(__dirname, 'real-fixtures.json')
+  const demoPath = path.join(__dirname, 'demo-fixtures.json')
+  if (existsSync(realPath)) {
+    return { fixtures: JSON.parse(readFileSync(realPath, 'utf-8')), source: 'real' }
+  }
+  return { fixtures: JSON.parse(readFileSync(demoPath, 'utf-8')), source: 'demo' }
+}
+
+/** 返回 real-fixtures.json 的生成时间戳（无该文件时返回 null），供启动同步判断使用 */
+export function realFixturesStamp(): string | null {
+  const realPath = path.join(__dirname, 'real-fixtures.json')
+  if (!existsSync(realPath)) return null
+  try {
+    const raw = JSON.parse(readFileSync(realPath, 'utf-8'))
+    return String(raw.generatedAt || '')
+  } catch {
+    return null
+  }
+}
+
+// 引号感知的 CSV 解析：经营范围字段含逗号与换行，不能按行 split
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let cur = ''
+  let inQ = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch === '"') {
+      if (inQ && text[i + 1] === '"') { cur += '"'; i++ }
+      else inQ = !inQ
+    } else if (ch === ',' && !inQ) {
+      row.push(cur); cur = ''
+    } else if ((ch === '\n' || ch === '\r') && !inQ) {
+      if (ch === '\r' && text[i + 1] === '\n') i++
+      row.push(cur); cur = ''
+      if (row.some((c) => c !== '')) rows.push(row)
+      row = []
+    } else {
+      cur += ch
+    }
+  }
+  if (cur !== '' || row.length) { row.push(cur); if (row.some((c) => c !== '')) rows.push(row) }
+  return rows
 }
 
 export async function seedDemoData(prisma: PrismaClient) {
-  const fixtures = loadFixtures()
-  console.log('🌱 开始填充演示数据（来源：demo mock fixtures，单一事实源）...')
+  const { fixtures, source } = loadFixtures()
+  console.log(`🌱 开始填充数据（来源：${source === 'real' ? '真实企业工商数据' : 'demo 演示数据'}）...`)
 
   // 清库（按外键依赖倒序）
+  await prisma.prospectEnterprise.deleteMany()
   await prisma.aiConversation.deleteMany()
   await prisma.systemConfig.deleteMany()
   await prisma.riskEvent.deleteMany()
@@ -43,6 +87,8 @@ export async function seedDemoData(prisma: PrismaClient) {
   await prisma.project.deleteMany()
   await prisma.policy.deleteMany()
   await prisma.shareholder.deleteMany()
+  await prisma.judicialCase.deleteMany()
+  await prisma.enterpriseRecord.deleteMany()
   await prisma.enterprise.deleteMany()
   await prisma.user.deleteMany()
   await prisma.district.deleteMany()
@@ -61,11 +107,11 @@ export async function seedDemoData(prisma: PrismaClient) {
   const users = [
     { username: 'admin',       name: '系统管理员', role: 'admin',  password: 'admin123', districtId: undefined },
     { username: 'leader',      name: '局领导',     role: 'leader', password: 'leader123', districtId: undefined },
-    { username: 'zhaoshang01', name: '李专员',     role: 'worker', password: '123456',   districtId: 'xf' },
-    { username: 'zhaoshang02', name: '王专员',     role: 'worker', password: '123456',   districtId: 'qc' },
-    { username: 'zhaoshang03', name: '张专员',     role: 'worker', password: '123456',   districtId: 'hj' },
-    { username: 'invest_zhang', name: '张经理',    role: 'worker', password: '123456',   districtId: 'xf' },
-    { username: 'invest_wang',  name: '王经理',    role: 'worker', password: '123456',   districtId: 'ning' },
+    { username: 'zhaoshang01', name: '李专员',     role: 'worker', password: 'NewPass123', districtId: 'xf' },
+    { username: 'zhaoshang02', name: '王专员',     role: 'worker', password: 'NewPass123', districtId: 'qc' },
+    { username: 'zhaoshang03', name: '张专员',     role: 'worker', password: 'NewPass123', districtId: 'hj' },
+    { username: 'invest_zhang', name: '张经理',    role: 'worker', password: 'NewPass123', districtId: 'xf' },
+    { username: 'invest_wang',  name: '王经理',    role: 'worker', password: 'NewPass123', districtId: 'ning' },
   ]
   for (const u of users) {
     await prisma.user.create({
@@ -78,16 +124,77 @@ export async function seedDemoData(prisma: PrismaClient) {
       },
     })
   }
-  console.log(`  ✓ 用户 ${users.length} 个（默认密码：admin123 / leader123 / 123456）`)
+  console.log(`  ✓ 用户 ${users.length} 个（默认密码：admin123 / leader123 / NewPass123）`)
 
   // 3. 企业 + 股东
   for (const ent of fixtures.enterprises) {
-    const { shareholders, ...entData } = ent
+    const { shareholders, records, ...entData } = ent
     await prisma.enterprise.create({
       data: { ...entData, shareholders: { create: shareholders } },
     })
   }
   console.log(`  ✓ 企业 ${fixtures.enterprises.length} 家`)
+
+  // 3.35 招商候选企业池（真实外部企业，项目页 AI 智能推荐的数据源）
+  // 替代原 mock.js 中 18 家虚构招商线索；数据来自 Doris 官方工商+国标行业
+  const prospectCsv = path.join(__dirname, '../../data-import/prospects/prospects.csv')
+  if (existsSync(prospectCsv)) {
+    const table = parseCsv(readFileSync(prospectCsv, 'utf-8'))
+    const header = table.shift() || []
+    const col = (n: string) => header.indexOf(n)
+    const seen = new Set<string>()
+    const prows: any[] = []
+    for (const r of table) {
+      const nm = (r[col('company_name')] || '').trim()
+      const cc = (r[col('credit_no')] || '').trim()
+      if (!nm || (cc && seen.has(cc))) continue
+      if (cc) seen.add(cc)
+      prows.push({
+        name: nm,
+        creditCode: cc || null,
+        province: (r[col('province')] || '').trim(),
+        city: (r[col('city')] || '').trim(),
+        industryL1: (r[col('industry_l1_name')] || '').trim() || null,
+        industryL2: (r[col('industry_l2_name')] || '').trim() || null,
+        regCapital: Number(r[col('capital_num')]) || 0,
+        foundDate: (r[col('establish_date')] || '').trim() || null,
+        bizScope: (r[col('scope')] || '').trim() || null,
+      })
+    }
+    if (prows.length) {
+      await prisma.prospectEnterprise.createMany({ data: prows })
+      console.log(`  ✓ 招商候选企业 ${prows.length} 家（真实外部企业池）`)
+    }
+  } else {
+    console.log('  ⚠ 未找到 data-import/prospects/prospects.csv，跳过候选企业池')
+  }
+
+  // 3.4 企业档案记录（行政处罚/经营异常/股权出质/动产抵押/分支机构）
+  let recN = 0
+  for (const ent of fixtures.enterprises) {
+    for (const r of (ent.records || [])) {
+      recN++
+      await prisma.enterpriseRecord.create({
+        data: {
+          id: `REC${String(recN).padStart(4, '0')}`,
+          enterpriseId: ent.id,
+          type: r.type,
+          title: String(r.title || '').slice(0, 200),
+          detail: r.detail || null,
+          occurDate: r.occurDate || null,
+          amount: (r.amount === null || r.amount === undefined) ? null : Number(r.amount),
+        },
+      })
+    }
+  }
+  console.log(`  ✓ 企业档案记录 ${recN} 条`)
+
+  // 3.5 司法案件明细（真实案号/案由/审判程序）
+  const jcs = fixtures.judicialCases || []
+  for (const jc of jcs) {
+    await prisma.judicialCase.create({ data: jc })
+  }
+  console.log(`  ✓ 司法案件明细 ${jcs.length} 条`)
 
   // 4. 风险事件
   for (const ev of fixtures.riskEvents) {
@@ -121,6 +228,6 @@ export async function seedDemoData(prisma: PrismaClient) {
   默认账号：
     admin / admin123    （管理员）
     leader / leader123   （领导）
-    zhaoshang01 / 123456 （招商专员）
+    zhaoshang01 / NewPass123 （招商专员）
   `)
 }

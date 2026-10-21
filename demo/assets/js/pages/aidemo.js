@@ -10,6 +10,84 @@
   var C = APP.Components;
   var M = window.MOCK;
 
+  /* ------------------------------------------------------------
+   * 轻量 Markdown 渲染：支持表格、粗体、分段
+   * 大模型（尤其走 MCP 查数）返回的内容天然带 Markdown 表格，
+   * 直接按纯文本渲染会显示成一堆竖线，这里最小化支持即可。
+   * ------------------------------------------------------------ */
+  function splitRow(line) {
+    return line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); });
+  }
+
+  function renderAIText(raw) {
+    var text = U.esc(String(raw == null ? '' : raw));
+    var lines = text.split('\n');
+    var out = [];
+    var i = 0;
+    while (i < lines.length) {
+      var line = lines[i].trim();
+      var next = (lines[i + 1] || '').trim();
+      // 表格块：当前行是 |...|，且下一行是 |---|---| 分隔行
+      if (/^\|.*\|$/.test(line) && /^\|[\s:|-]+\|$/.test(next) && next.indexOf('-') > -1) {
+        var header = splitRow(line);
+        i += 2;
+        var rows = [];
+        while (i < lines.length && /^\|.*\|$/.test(lines[i].trim())) {
+          rows.push(splitRow(lines[i].trim()));
+          i++;
+        }
+        var tbl = '<div class="msg-table-wrap"><table class="msg-table"><thead><tr>';
+        for (var h = 0; h < header.length; h++) tbl += '<th>' + header[h] + '</th>';
+        tbl += '</tr></thead><tbody>';
+        for (var r = 0; r < rows.length; r++) {
+          tbl += '<tr>';
+          for (var c = 0; c < header.length; c++) tbl += '<td>' + (rows[r][c] || '') + '</td>';
+          tbl += '</tr>';
+        }
+        tbl += '</tbody></table></div>';
+        out.push(tbl);
+        continue;
+      }
+      if (!line) {
+        out.push('<div class="msg-gap"></div>');
+      } else {
+        out.push('<div class="msg-line">' + line.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>') + '</div>');
+      }
+      i++;
+    }
+    return out.join('');
+  }
+
+  /* ------------------------------------------------------------
+   * 大模型调用：走后端 /api/ai/chat/:agentType
+   * 后端已注入平台实时数据 + 多轮历史，此处只负责传输与失败回退。
+   * 纯前端离线打开 demo/index.html 时 fetch 会失败，自动回退本地预脚本回复。
+   * ---------------------------------------------------------- */
+  function getToken() {
+    try { return localStorage.getItem('zs_token') || ''; } catch (e) { return ''; }
+  }
+
+  function callAI(agentKey, text) {
+    var token = getToken();
+    if (!token || typeof fetch !== 'function') {
+      return Promise.reject(new Error('未登录或无 fetch 能力'));
+    }
+    return fetch('/api/ai/chat/' + encodeURIComponent(agentKey), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ message: text })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (j) {
+      if (j && j.code === 0 && j.data && j.data.reply) return String(j.data.reply);
+      throw new Error((j && j.msg) || '返回格式异常');
+    });
+  }
+
   // 智能体图标：白色线性 SVG + 专属渐变底色（替代 emoji，视觉更精致统一）
   function svgIcon(paths) {
     return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>';
@@ -141,9 +219,9 @@
   function getQuickQuestions(key) {
     switch(key) {
       case 'insight':
-        return ['分析一下甘肃XX能源科技有限公司', '庆阳市营收前5的企业有哪些？', '新能源行业发展趋势如何'];
+        return ['分析一下甘肃赫隆能源科技技术有限公司', '庆阳市营收前5的企业有哪些？', '新能源行业发展趋势如何'];
       case 'risk':
-        return ['当前有哪些重大风险企业？', '分析XX公司的主要风险点', '近30天新增了哪些风险事件'];
+        return ['当前有哪些重大风险企业？', '分析甘肃宁州华凯能源有限公司的主要风险点', '近30天新增了哪些风险事件'];
       case 'plan':
         return ['庆阳市重点招商方向是什么？', '推荐新能源产业链目标企业', '如何引进数字经济头部企业'];
       case 'service':
@@ -171,7 +249,7 @@
     var time = fmtHm(msg.ts);
     var contentHtml = msg.type === 'thinking'
       ? '<div class="msg-thinking"><span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span></div>'
-      : '<div class="msg-text">' + U.esc(msg.content).replace(/\n/g, '<br/>') + '</div>';
+      : '<div class="msg-text">' + renderAIText(msg.content) + '</div>';
     return '<div class="msg ' + (isUser ? 'msg-user' : 'msg-ai') + '">' +
       '<div class="msg-avatar' + (isUser ? ' user' : '') + '" style="' + (isUser ? '' : 'background:' + agent.grad + ';') + '">' + avatar + '</div>' +
       '<div class="msg-body">' +
@@ -220,17 +298,26 @@
       for (var i = conv.length - 1; i >= 0; i--) {
         if (conv[i].id === thinkingId) { conv.splice(i, 1); break; }
       }
-      // 生成回答 → 打字机流式输出（异常时给出兜底回复，不再卡死发送状态）
-      var reply;
-      try {
-        reply = generateReply(currentAgent, text);
-      } catch (err) {
-        console.error('[aidemo] 回复生成异常', err);
-        reply = '您的问题我已记录，但处理过程中遇到异常，请换个问法或稍后再试。';
-      }
+      // 先占位一条空消息并渲染，供流式输出逐字填充
       var msg = { role: 'assistant', type: 'text', content: '', ts: Date.now() };
       conv.push(msg);
-      typeOut(msg, reply);
+      refreshMessages();
+
+      // 优先真实大模型；失败（离线/超时/未登录）回退本地预脚本回复
+      callAI(currentAgent, text).then(function(reply){
+        if (!reply || !String(reply).trim()) throw new Error('大模型返回空内容');
+        typeOut(msg, String(reply));
+      }).catch(function(err){
+        console.warn('[aidemo] 大模型不可用，回退本地回复：', err && err.message ? err.message : err);
+        var fallback;
+        try {
+          fallback = generateReply(currentAgent, text);
+        } catch (e) {
+          console.error('[aidemo] 回复生成异常', e);
+          fallback = '您的问题我已记录，但处理过程中遇到异常，请换个问法或稍后再试。';
+        }
+        typeOut(msg, fallback);
+      });
     }, thinkMs);
   }
 
@@ -316,7 +403,7 @@
           return '【庆阳市新能源产业发展态势分析】\n\n' +
             '1️⃣ 产业规模：全市新能源装备制造相关企业' + neInd.count + '家，年度营收' + neInd.revenue + '亿元。\n\n' +
             '2️⃣ 发展优势：庆阳市风光资源富集，是国家重要的新能源基地。风电、光伏装机容量持续增长，储能、氢能等新兴业态加速布局。\n\n' +
-            '3️⃣ 重点企业：甘肃XX能源科技有限公司、庆阳XX新能源有限公司等骨干企业带动效应明显。\n\n' +
+            '3️⃣ 重点企业：华能华池新能源有限公司、庆阳能源化工集团装备制造有限公司等骨干企业带动效应明显。\n\n' +
             '4️⃣ 发展建议：围绕"源网荷储"一体化，延链补链强链，打造千亿级新能源产业集群。\n\n' +
             '如需了解具体企业详情，请告诉我企业名称。';
         }

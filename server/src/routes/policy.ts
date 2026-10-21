@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../utils/prisma.js'
 import { ok, parsePagination, fail } from '../utils/helper.js'
+import { audit, auditCtx } from '../utils/audit.js'
 
 const CATEGORIES = [
   { key: 'all', name: '全部' },
@@ -94,6 +95,8 @@ export default async function (fastify: FastifyInstance) {
         hot: 0,
       },
     })
+    await audit('create_policy', `Policy:${p.id}`,
+      { title: p.title, category: p.category, level: p.level }, auditCtx(request))
     return ok(p, '政策已入库')
   })
 }

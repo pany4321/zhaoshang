@@ -113,14 +113,15 @@ export default async function (fastify: FastifyInstance) {
       _count: true,
       orderBy: { _count: { id: 'desc' } as any },
     })
-    const ids = rows.map(r => r.industryId)
+    // industryId 可为空（外省招商线索尚未归产业），groupBy 会产出 null 分组，需剔除后再查字典
+    const ids = rows.map(r => r.industryId).filter((x): x is string => !!x)
     const industries = await prisma.industry.findMany({
       where: { id: { in: ids } },
       select: { id: true, name: true },
     })
     const idMap = new Map(industries.map(i => [i.id, i.name]))
     const data = rows.map(r => ({
-      name: idMap.get(r.industryId) || r.industryId,
+      name: idMap.get(r.industryId || '') || r.industryId || '未分类',
       value: r._count,
     }))
     return ok(data)

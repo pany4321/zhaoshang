@@ -11,6 +11,42 @@
   // 关键词动态筛选：记录焦点与光标位置，重渲染后恢复，避免打字中断
   var kwState = { active: false, pos: null };
 
+  // 发布日期展示：原始日期 + 相对时效（发布 N 天 / N 个月 / N 年M个月）
+  // 政策发布日期是业务必读字段（决定是否还在申报窗口内），不应只作副标题小字
+  function relDate(str) {
+    if (!str) return '';
+    var t = Date.parse(String(str) + 'T00:00:00');
+    if (isNaN(t)) return '';
+    var days = Math.floor((Date.now() - t) / 86400000);
+    if (days < 0) return '尚未生效';
+    if (days === 0) return '今日发布';
+    if (days < 30) return '发布 ' + days + ' 天';
+    var m = Math.floor(days / 30);
+    if (m < 12) return '发布 ' + m + ' 个月';
+    var y = Math.floor(m / 12), rm = m % 12;
+    return '发布 ' + y + ' 年' + (rm ? ' ' + rm + ' 个月' : '');
+  }
+
+  // 政策元信息格：发布日期 / 政策类型 / 发布部门 / 政策层级
+  function metaGrid(p) {
+    var items = [
+      ['发布日期', p.date ? p.date : '未注明', relDate(p.date)],
+      ['政策类型', p.type || '未分类', ''],
+      ['发布部门', p.dept || '未注明', ''],
+      ['政策层级', p.level || '未注明', '']
+    ];
+    return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">' +
+      items.map(function(it){
+        return '<div style="background:#F8FAFC;border:1px solid var(--c-border-light);border-radius:6px;padding:8px 10px;">' +
+          '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px;">' + it[0] + '</div>' +
+          '<div style="font-size:13px;font-weight:600;color:#0F172A;">' + U.esc(it[1]) +
+            (it[2] ? '<span style="font-weight:400;font-size:11px;color:#94A3B8;margin-left:6px;">' + it[2] + '</span>' : '') +
+          '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+  }
+
   function renderPolicy() {
     var f = state.filter.policy;
     var P = M.POLICY_LIB;
@@ -79,7 +115,7 @@
         '<div class="plc-title">' + U.esc(p.name) + '</div>' +
         '<div class="plc-desc">' + U.esc(p.apply || p.brief || '') + '</div>' +
         '<div class="plc-meta">' +
-          '<span>📅 ' + U.esc(p.date || '2026-01-01') + '</span>' +
+          '<span title="发布日期">📅 ' + (p.date ? U.esc(p.date) : '未注明') + '</span>' +
           '<span>🏛️ ' + U.esc(p.dept) + '</span>' +
           '<span>🔥 ' + hot + ' 次浏览</span>' +
         '</div>' +
@@ -311,12 +347,10 @@
     var html =
       '<div style="font-size:13px;line-height:1.8;">' +
         '<div style="font-size:16px;font-weight:600;margin-bottom:4px;line-height:1.4;">' + U.esc(p.name) + '</div>' +
-        '<div style="color:#94A3B8;font-size:12px;margin-bottom:12px;">' +
-          U.esc(p.dept) + ' · ' + U.esc(p.level) + ' · ' + U.esc(p.date||'') +
+        '<div style="color:#94A3B8;font-size:12px;margin-bottom:10px;">' +
+          U.esc(p.dept) + ' · ' + U.esc(p.level) +
         '</div>' +
-        '<div style="margin-bottom:12px;">' +
-          '<span class="plc-level" style="color:#2563EB;border-color:#2563EB;">' + U.esc(p.type) + '</span>' +
-        '</div>' +
+        metaGrid(p) +
         '<div style="margin-top:12px;">' +
           '<div style="font-weight:600;margin-bottom:6px;">政策摘要</div>' +
           '<div style="background:#F8FAFC;padding:10px;border-radius:4px;font-size:12px;line-height:1.8;">' +
@@ -481,7 +515,53 @@
     setTimeout(step, 300);
   }
 
-  // AI 智能匹配对话框（模拟大模型匹配过程）
+  /* ------------------------------------------------------------
+   * AI 政策智能匹配：调后端 /api/ai/policy-match
+   *
+   * 后端是「规则召回 12 家 + 大模型精排」，匹配理由由模型基于真实数据生成。
+   * 失败时由本地 generateMatches() 规则评分兜底，不阻断演示。
+   * ---------------------------------------------------------- */
+  function callPolicyMatch(policyCode, policyObj) {
+    var token = '';
+    try { token = localStorage.getItem('zs_token') || ''; } catch (e) {}
+    if (!token || typeof fetch !== 'function') {
+      return Promise.reject(new Error('未登录或无 fetch 能力'));
+    }
+    // 同步政策加入的新政策只是本地数据（code 如 P27），数据库里还没有，
+    // 因此把政策内容一并传给后端，避免后端查不到直接降级。
+    var payload = {
+      policyId: policyCode,
+      limit: 6
+    };
+    if (policyObj) {
+      payload.policy = {
+        name: policyObj.name,
+        type: policyObj.type,
+        level: policyObj.level,
+        dept: policyObj.dept,
+        tag: policyObj.tag,
+        support: policyObj.support,
+        brief: policyObj.brief,
+        apply: policyObj.apply
+      };
+    }
+    return fetch('/api/ai/policy-match', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (j) {
+      if (j && j.code === 0 && j.data && (j.data.matches || []).length) return j.data;
+      throw new Error((j && j.msg) || '返回格式异常');
+    });
+  }
+
+  // AI 智能匹配对话框
   function openAiMatchDialog() {
     // 待匹配的新政策（从 POLICY_LIB 头部取，因为新同步的 unshift 在前面）
     var pending = _syncAddedCount - _aiMatchedCount;
@@ -546,9 +626,39 @@
       return scored.slice(0, count);
     }
 
+    // 本地规则结果：立即可用，既是兜底也是动画期间的过程展示
     var allResults = newPolicies.map(function(p){
       return { policy: p, matches: generateMatches(p) };
     });
+
+    // 并行发起真实匹配（规则召回 + 大模型精排），返回后原地替换对应政策的结果
+    var realReady = 0;
+    var matchPromises = newPolicies.map(function (p, idx) {
+      var code = p.code || p.id;
+      if (!code) { realReady++; return Promise.resolve(); }
+      return callPolicyMatch(code, p).then(function (data) {
+        allResults[idx] = {
+          policy: p,
+          summary: data.summary || '',
+          matches: (data.matches || []).map(function (m) {
+            return {
+              enterprise: {
+                name: m.name,
+                industryName: m.industry || '',
+                scale: m.scale || ''
+              },
+              score: m.fit,
+              reasons: m.reasons || []
+            };
+          })
+        };
+        realReady++;
+      }).catch(function (err) {
+        console.warn('[policy] 政策匹配大模型不可用，使用规则结果：', err && err.message ? err.message : err);
+        realReady++;
+      });
+    });
+    var allMatchDone = Promise.all(matchPromises);
 
     // 构建对话框
     var mask = U.el('div', { class: 'modal-mask', style: 'z-index:2000;' });
@@ -600,8 +710,13 @@
     var stepIdx = 0;
     function runStep() {
       if (stepIdx >= thinkingSteps.length) {
-        // 思考完成，展示结果
-        showResults();
+        // 动画播完：大模型若尚未返回，如实提示等待（不假装已完成）
+        if (realReady < newPolicies.length) {
+          thinkingEl.innerHTML += '\n\n<span style="color:#2563EB;">⏳ 大模型推理中，等待匹配结果返回…</span>';
+          var tp = thinkingEl.parentElement;
+          tp.scrollTop = tp.scrollHeight;
+        }
+        allMatchDone.then(function () { showResults(); });
         return;
       }
       var step = thinkingSteps[stepIdx];
@@ -618,11 +733,19 @@
 
       var resultsHtml = '';
       allResults.forEach(function(r, pi){
+        // 发布日期：优先取后端返回，其次回查本地政策库（新同步政策未入库时只有本地有）
+        var pdate = (r.policy && r.policy.publishDate) || (function(nm){
+          var hit = M.POLICY_LIB.filter(function(x){ return x.name === nm; })[0];
+          return hit && hit.date ? hit.date : '';
+        })(r.policy && r.policy.name);
         resultsHtml += '<div style="margin-bottom:24px;">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
-            '<div style="font-weight:600;color:#0F172A;font-size:14px;">📄 ' + U.esc(r.policy.name) + '</div>' +
+            '<div style="font-weight:600;color:#0F172A;font-size:14px;">📄 ' + U.esc(r.policy.name) +
+              (pdate ? '<span style="font-weight:400;font-size:11px;color:#94A3B8;margin-left:8px;" title="发布日期">📅 ' + U.esc(pdate) + '</span>' : '') +
+            '</div>' +
             '<span style="font-size:11px;color:#94A3B8;">匹配 ' + r.matches.length + ' 家企业</span>' +
           '</div>' +
+          (r.summary ? '<div style="font-size:12px;color:#475569;background:#F0F9FF;border-left:3px solid #38BDF8;padding:8px 10px;margin-bottom:10px;border-radius:0 4px 4px 0;line-height:1.7;">' + U.esc(r.summary) + '</div>' : '') +
           '<div style="background:#F8FAFC;border:1px solid var(--c-border-light);border-radius:8px;overflow:hidden;">' +
             '<table class="tbl" style="margin:0;">' +
               '<thead><tr>' +

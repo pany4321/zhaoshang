@@ -413,7 +413,7 @@
       // 产业分布 + 政策兑现
       '<div class="row mt">' +
         '<div class="col-2 card">' +
-          '<div class="card-title">产业分布结构</div>' +
+          '<div class="card-title">产业分布结构 <span class="muted" style="font-size:12px;font-weight:400;">招商产业口径 · 按企业主营方向归并的 12 个重点产业</span></div>' +
           '<div id="c_industry" class="chart" style="height:300px"></div>' +
         '</div>' +
         '<div class="col card">' +

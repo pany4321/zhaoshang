@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../utils/prisma.js'
 import { ok, parsePagination, fail } from '../utils/helper.js'
+import { audit, auditCtx } from '../utils/audit.js'
 
 export default async function (fastify: FastifyInstance) {
   // 工作台 KPI（按当前用户）
@@ -123,6 +124,7 @@ export default async function (fastify: FastifyInstance) {
       where: { id: Number(id) },
       data: { status: 'doing' },
     })
+    await audit('task_start', `Task:${id}`, { title: task.title }, auditCtx(request))
     return ok(task, '任务已开始')
   })
 
@@ -147,6 +149,9 @@ export default async function (fastify: FastifyInstance) {
         data: { status: 'done' },
       })
     }
+    await audit('task_finish', `Task:${id}`,
+      { title: task.title, processLog: result || null, riskEventId: task.riskEvent?.id || null },
+      auditCtx(request))
     return ok(task, '任务已完成')
   })
 
@@ -171,6 +176,8 @@ export default async function (fastify: FastifyInstance) {
         source: body.source || '手动创建',
       },
     })
+    await audit('task_create', `Task:${task.id}`,
+      { title: task.title, type: task.type, assignee: task.assignee }, auditCtx(request))
     return ok(task, '任务已创建')
   })
 }

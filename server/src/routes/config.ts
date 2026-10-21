@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../utils/prisma.js'
 import { ok, fail } from '../utils/helper.js'
+import { audit, auditCtx } from '../utils/audit.js'
+import { seedDemoData, realFixturesStamp } from '../../prisma/seed-data.js'
 
 export const DEFAULT_RISK_WEIGHTS = [
   { key: 'operation', name: '经营风险', weight: 0.20 },
@@ -49,6 +51,45 @@ export default async function (fastify: FastifyInstance) {
       update: { value: JSON.stringify(normalized) },
       create: { key: 'risk_weights', value: JSON.stringify(normalized) },
     })
+    await audit('update_risk_weights', 'SystemConfig:risk_weights',
+      { weights: normalized }, auditCtx(request))
     return ok(normalized, '风险权重配置已更新')
+  })
+
+  // 数据同步：重新导入 real-fixtures.json 并记录同步时间戳（仅管理员）
+  // 供外部定时任务（每日）在更新 fixtures 后触发，避免每次登录都做全量同步。
+  fastify.post('/sync-data', { preHandler: [fastify.authenticate] }, async (request: any, reply) => {
+    if (request.user?.role !== 'admin') {
+      return reply.code(403).send(fail('仅管理员可执行数据同步'))
+    }
+    const stamp = realFixturesStamp()
+    await seedDemoData(prisma)
+    const payload = JSON.stringify({ fixturesGeneratedAt: stamp, syncedAt: new Date().toISOString() })
+    await prisma.systemConfig.upsert({
+      where: { key: 'data_sync' },
+      update: { value: payload },
+      create: { key: 'data_sync', value: payload },
+    })
+    const [enterprises, riskEvents, projects, tasks, policies] = await Promise.all([
+      prisma.enterprise.count(), prisma.riskEvent.count(), prisma.project.count(),
+      prisma.task.count(), prisma.policy.count(),
+    ])
+    await audit('sync_data', 'SystemConfig:data_sync',
+      { enterprises, riskEvents, projects, tasks, policies, fixturesGeneratedAt: stamp }, auditCtx(request))
+    return ok(
+      { enterprises, riskEvents, projects, tasks, policies, fixturesGeneratedAt: stamp, syncedAt: new Date().toISOString() },
+      '数据同步完成'
+    )
+  })
+
+  // 查询数据同步状态
+  fastify.get('/sync-status', async () => {
+    const cfg = await prisma.systemConfig.findUnique({ where: { key: 'data_sync' } })
+    const enterprises = await prisma.enterprise.count()
+    return ok({
+      enterprises,
+      fixturesGeneratedAt: realFixturesStamp(),
+      lastSync: cfg ? JSON.parse(cfg.value) : null,
+    })
   })
 }

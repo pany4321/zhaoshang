@@ -22,9 +22,11 @@ export default async function (fastify: FastifyInstance) {
 
     // 行业或区县节点
     if (type === 'industry') {
-      const industries = [...new Set(enterprises.map(e => e.industryId))]
+      // 剔除空值：外省招商线索企业尚未归入 12 招商产业，不生成「ind-null」节点
+      const industries = [...new Set(enterprises.map(e => e.industryId).filter((x): x is string => !!x))]
       for (const indId of industries) {
-        const ind = enterprises.find(e => e.industryId === indId)!.industry
+        const ind = enterprises.find(e => e.industryId === indId)?.industry
+        if (!ind) continue
         nodes.push({
           id: `ind-${indId}`,
           name: ind.name,
@@ -35,9 +37,11 @@ export default async function (fastify: FastifyInstance) {
         idSet.add(`ind-${indId}`)
       }
     } else {
-      const districts = [...new Set(enterprises.map(e => e.districtId))]
+      // 剔除空值：省外线索企业落地前无庆阳辖区，不生成「dist-null」节点
+      const districts = [...new Set(enterprises.map(e => e.districtId).filter((x): x is string => !!x))]
       for (const dId of districts) {
-        const d = enterprises.find(e => e.districtId === dId)!.district
+        const d = enterprises.find(e => e.districtId === dId)?.district
+        if (!d) continue
         nodes.push({
           id: `dist-${dId}`,
           name: d.name,

@@ -10,15 +10,24 @@ export interface RawShareholder { name: string; ratio: number; sort: number }
 export interface RawEnterprise {
   id: string; name: string; creditCode: string; legal: string; found: string;
   scale: string; bizStatus: string; creditStatus: string; regCapital: string;
-  districtId: string; industryId: string; isKey: boolean; isNew: boolean; newDate: string | null;
+  // 外省招商线索企业在落地前无庆阳辖区归属（null），不得伪造区县
+  districtId: string | null; industryId: string | null; isKey: boolean; isNew: boolean; newDate: string | null;
   revenue: number; tax: number; investment: number; employees: number; landMu: number;
   performRate: number; commitRate: number | null;
   riskScore: number; riskLevel: string;
   riskOp: number; riskFin: number; riskLegal: number; riskCredit: number;
   riskTender: number; riskTax: number; riskCommit: number; riskIp: number;
+  // 深度数据（真实工商/司法/知产/招投标）
+  patentCount?: number; inventionCount?: number; trademarkCount?: number;
+  judicialCount?: number; zhixingCount?: number; shixinCount?: number; bidCount?: number;
+  assetTotal?: number; netProfit?: number; finYear?: string | null;
+  // 真实国标行业（company_industry，2017 国民经济行业分类，官方公示）
+  // 与 industryId（招商视角 12 个产业，规则推导）并存，不可混用
+  nationalIndustryL1?: string | null; nationalIndustry?: string | null; nationalIndustryL3?: string | null;
+  records?: Array<{ id: string; type: string; title: string; detail?: string | null; occurDate?: string | null; amount?: number | null }>;
   shareholders: RawShareholder[];
-  district: { id: string; name: string };
-  industry: { id: string; name: string };
+  district: { id: string; name: string } | null;
+  industry: { id: string; name: string } | null;
 }
 export interface RawRiskEvent {
   id: string; title: string; dimension: string; dimensionName: string;
@@ -28,12 +37,12 @@ export interface RawRiskEvent {
 }
 export interface RawProject {
   id: string; name: string; enterpriseId: string; stage: number; stageName: string;
-  progress: number; investment: number; districtId: string; industryId: string;
+  progress: number; investment: number; districtId: string | null; industryId: string | null;
   org: string; contact: string | null; riskLevel: string; riskScore: number; startDate: string;
   stage1Detail: string | null; stage2Detail: string | null; stage3Detail: string | null;
   stage4Detail: string | null; stage5Detail: string | null; stage6Detail: string | null;
   lastContact: string | null;
-  enterprise: RawEnterprise; district: { id: string; name: string }; industry: { id: string; name: string };
+  enterprise: RawEnterprise; district: { id: string; name: string } | null; industry: { id: string; name: string } | null;
 }
 export interface RawTask {
   id: number; title: string; type: string; priority: string; status: string;
@@ -51,6 +60,12 @@ export interface RawPolicy {
   amount: number; redeemed: number; helpedEnts: number;
   industry: { id: string; name: string } | null;
 }
+export interface RawJudicialCase {
+  id: string; enterpriseId: string;
+  title: string | null; caseCode: string | null; caseReason: string | null;
+  partyRole: string | null; procedure: string | null; trialTime: string | null; typeTags: string | null;
+}
+
 export interface BootstrapData {
   districts: { id: string; name: string; sort: number }[];
   industries: { id: string; name: string; sort: number }[];
@@ -59,6 +74,7 @@ export interface BootstrapData {
   projects: RawProject[];
   tasks: RawTask[];
   policies: RawPolicy[];
+  judicialCases?: RawJudicialCase[];
 }
 
 // —— 风险维度映射：server 9 维 → demo 8 维（env 折入经营） ——
@@ -171,7 +187,7 @@ const DYN_POOLS: { type: string; pool: string[] }[] = [
 // ============================================================
 // 企业映射
 // ============================================================
-export function mapEnterprise(e: RawEnterprise): any {
+export function mapEnterprise(e: RawEnterprise, cases: RawJudicialCase[] = []): any {
   const r = mkR('ent-' + e.id)
   const regCapitalWan = parseInt(String(e.regCapital).replace(/\D/g, ''), 10) || Math.round(e.investment * 0.6) || 500
 
@@ -181,7 +197,7 @@ export function mapEnterprise(e: RawEnterprise): any {
 
   // 年度增长率（科技行业更高，稳定性由 id 保证）
   let yearGrowth = r.float(-0.03, 0.18, 3)
-  if (['software', 'biomed', 'neequip'].includes(e.industryId)) {
+  if (['software', 'biomed', 'neequip'].includes(e.industryId || '')) {
     yearGrowth = Math.max(0.03, yearGrowth + 0.06)
   }
   const years: number[] = []
@@ -228,7 +244,8 @@ export function mapEnterprise(e: RawEnterprise): any {
 
   // 标签（驱动政策匹配与图谱展示）
   const tags: string[] = []
-  const baseTag = INDUSTRY_BASE_TAG[e.industryId] || '重点招商企业'
+  // 无产业归属（外省招商线索）时不查表，直接给默认标签
+  const baseTag = (e.industryId && INDUSTRY_BASE_TAG[e.industryId]) || '重点招商企业'
   tags.push(baseTag)
   if (e.scale === '大型企业') tags.push('重点招商企业')
   if (r.bool(0.3)) tags.push('高新技术企业')
@@ -277,13 +294,16 @@ export function mapEnterprise(e: RawEnterprise): any {
     regCapital: regCapitalWan,
     regCapitalFmt,
     found: e.found,
-    industry: e.industryId,
-    industryName: e.industry?.name || e.industryId,
+    industry: e.industryId || '',
+    industryName: e.industry?.name || e.industryId || '未分类',
     scale: e.scale,
     tags,
-    district: e.districtId,
-    districtName: e.district?.name || e.districtId,
-    address: (e.district?.name || '') + (r.bool(0.5) ? '工业园区' : '产业园区') + (r.bool(0.5) ? ' A 座' : ' B 区'),
+    // 空值 = 外省招商线索，落地前无庆阳辖区（不得显示为某个区县）
+    district: e.districtId || '',
+    districtName: e.district?.name || (e.districtId ? e.districtId : '区县未定'),
+    address: e.district?.name
+      ? e.district.name + (r.bool(0.5) ? '工业园区' : '产业园区') + (r.bool(0.5) ? ' A 座' : ' B 区')
+      : '省外线索 · 待落地核实',
     isDeep: !!e.isKey,
     signDaysAgo: r.int(1, 180),
     overview: {
@@ -321,6 +341,32 @@ export function mapEnterprise(e: RawEnterprise): any {
     riskScore,
     riskLevel,
     shareholders: (e.shareholders || []).map(s => ({ name: s.name, ratio: s.ratio })),
+    // 深度数据（真实工商/司法/知产/招投标）
+    patentCount: e.patentCount || 0,
+    // 官方国标行业（真实），供画像页/政策匹配展示
+    nationalIndustryL1: e.nationalIndustryL1 || null,
+    nationalIndustry: e.nationalIndustry || null,
+    nationalIndustryL3: e.nationalIndustryL3 || null,
+    inventionCount: e.inventionCount || 0,
+    trademarkCount: e.trademarkCount || 0,
+    judicialCount: e.judicialCount || 0,
+    zhixingCount: e.zhixingCount || 0,
+    shixinCount: e.shixinCount || 0,
+    bidCount: e.bidCount || 0,
+    // 真实财务数据（工商年报公示值，finYear 为空表示该企业未公示）
+    assetTotal: e.assetTotal || 0,
+    netProfit: e.netProfit || 0,
+    finYear: e.finYear || null,
+    // 企业档案记录（处罚/异常/出质/抵押/分支），detail 为 JSON 字符串
+    records: (e.records || []).map((r: any) => ({
+      id: r.id,
+      type: r.type,
+      title: r.title,
+      detail: r.detail || null,
+      occurDate: r.occurDate || null,
+      amount: (r.amount === null || r.amount === undefined) ? null : r.amount,
+    })),
+    judicialCases: cases,
     policies: [],
     ai: null,
     _new: !!e.isNew,
@@ -436,8 +482,8 @@ export function mapProject(p: RawProject): any {
     progress: p.progress,
     risk: p.riskLevel === 'red' ? '重大风险' : p.riskLevel === 'orange' ? '关注' : '正常',
     riskLevel: p.riskLevel,
-    district: p.districtId,
-    districtName: p.district?.name || p.districtId,
+    district: p.districtId || '',
+    districtName: p.district?.name || (p.districtId ? p.districtId : '区县未定'),
     timeline,
     records,
     promises,
@@ -494,7 +540,13 @@ export function mapPolicy(p: RawPolicy): any {
 // 全量引导映射（引擎 rebuild 输入）
 // ============================================================
 export function mapBootstrap(raw: BootstrapData) {
-  const enterprises = (raw.enterprises || []).map(mapEnterprise)
+  // 司法案件按企业分组
+  const casesByEnt: Record<string, RawJudicialCase[]> = {}
+  for (const c of raw.judicialCases || []) {
+    if (!c?.enterpriseId) continue
+    ;(casesByEnt[c.enterpriseId] = casesByEnt[c.enterpriseId] || []).push(c)
+  }
+  const enterprises = (raw.enterprises || []).map(e => mapEnterprise(e, casesByEnt[e.id] || []))
   const events = (raw.riskEvents || []).map(mapRiskEvent)
   events.sort((a, b) => (a.time < b.time ? 1 : -1))
   const projects = (raw.projects || []).map(mapProject)

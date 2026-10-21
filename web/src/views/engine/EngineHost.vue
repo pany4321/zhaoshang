@@ -37,9 +37,26 @@ onMounted(async () => {
             : null
         )
         await bootEngine(router)
-      })()
+      })().catch((e) => {
+        // 引导失败：清空单例以便下次重试（否则失败态被永久缓存），并给出可见提示
+        bootPromise = null
+        console.error('[engine] 引擎引导失败', e)
+        const el = document.getElementById('content')
+        if (el) {
+          el.innerHTML =
+            '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:12px;color:#64748B;font-size:13px;">' +
+            '<div>页面数据加载失败</div>' +
+            '<button onclick="location.reload()" style="padding:6px 18px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;">重新加载</button>' +
+            '</div>'
+        }
+        throw e
+      })
     }
-    await bootPromise
+    try {
+      await bootPromise
+    } catch {
+      /* 已在 catch 中渲染错误态，此处避免 unhandled rejection */
+    }
   }
   setPageFromRoute(routePage())
 })

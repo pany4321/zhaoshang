@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../utils/prisma.js'
 import { ok, parsePagination, fail } from '../utils/helper.js'
+import { audit, auditCtx } from '../utils/audit.js'
 
 const STAGES = ['线索对接', '深度洽谈', '签约落地', '建设推进', '投产运营', '达产评价']
 
@@ -111,17 +112,20 @@ export default async function (fastify: FastifyInstance) {
         lastContact: new Date().toISOString().slice(0, 10),
       } as any,
     })
+    await audit('project_note', `Project:${id}`,
+      { stage: p.stage, note: (note || '').slice(0, 300) }, auditCtx(request))
     return ok(updated, '进展情况已保存')
   })
 
   // 新建招商项目（线索对接阶段，企业需先建档）
+  // districtId / industryId 可空：外省线索项目落地前无辖区归属，不得伪造区县
   fastify.post('/', { preHandler: [fastify.authenticate] }, async (request: any, reply) => {
     const {
       name, enterpriseId, investment = 0, districtId, industryId,
       org = '', contact = '', note = '',
     } = request.body || {} as any
-    if (!name || !enterpriseId || !districtId || !industryId) {
-      return reply.code(400).send(fail('请填写项目名称、企业、区县与行业'))
+    if (!name || !enterpriseId) {
+      return reply.code(400).send(fail('请填写项目名称与企业'))
     }
     const exists = await prisma.project.findUnique({ where: { enterpriseId } })
     if (exists) return reply.code(400).send(fail('该企业已有招商项目'))
@@ -136,8 +140,8 @@ export default async function (fastify: FastifyInstance) {
         stageName: STAGES[0],
         progress: 5,
         investment: Math.round(investment),
-        districtId,
-        industryId,
+        districtId: districtId || null,
+        industryId: industryId || null,
         org,
         contact,
         riskLevel: 'blue',
@@ -151,6 +155,8 @@ export default async function (fastify: FastifyInstance) {
         industry: true,
       },
     })
+    await audit('create_project', `Project:${p.id}`,
+      { name: p.name, enterpriseId: p.enterpriseId, investment: p.investment }, auditCtx(request))
     return ok(p, '项目已建档')
   })
 }
