@@ -202,7 +202,9 @@ const idsets = (arr, key) => arr.map(x => x[key]).sort().join(',');
 check('企业 ID 集合', idsets(F.enterprises, 'id'), idsets(M.ENTERPRISES, 'id'));
 check('风险事件 ID 集合', idsets(F.riskEvents, 'id'), idsets(M.RISK_EVENTS, 'id'));
 check('项目 ID 集合', idsets(F.projects, 'id'), idsets(M.PROJECTS, 'id'));
-check('政策 ID 集合', idsets(F.policies, 'id'), idsets(M.POLICY_LIB, 'id'));
+// 注意：demo 侧政策对象的主键字段名是 code（P01…），导出到 fixtures 时映射为 id；
+// 此处不能统一取 'id'，否则 mock 侧全部取到 undefined。其余实体两侧同名。
+check('政策 ID 集合', idsets(F.policies, 'id'), idsets(M.POLICY_LIB, 'code'));
 
 // 3. 分布与顺序
 const dist = (arr, key) => {
