@@ -2063,7 +2063,7 @@
         " " +
         ["09:42", "10:15", "11:03", "14:27", "15:50", "16:12"][i % 6];
       dueDate = daysAgo(dueOff);
-      createDays = Math.min(ev.daysAgo - 1, dueOff + rint(0, 2)); // 创建晚于事件发现、不晚于截止
+      createDays = Math.max(0, Math.min(ev.daysAgo - 1, dueOff + rint(0, 2))); // 创建晚于事件发现、不晚于截止；下界钳到今日，避免未来时间
     } else {
       // 已派发在办：未完成任务；高风险允许部分已逾期
       var dueOffset =
@@ -2081,8 +2081,8 @@
         dueDate = daysLater(dueOffset);
       }
       createDays = isOverdue
-        ? Math.min(ev.daysAgo - 1, dueOffset + rint(1, 3)) // 逾期任务尽量创建于原截止日之前
-        : Math.min(ev.daysAgo - 1, rint(0, 10)); // 创建晚于事件发现日
+        ? Math.max(0, Math.min(ev.daysAgo - 1, dueOffset + rint(1, 3))) // 逾期任务尽量创建于原截止日之前；下界钳到今日
+        : Math.max(0, Math.min(ev.daysAgo - 1, rint(0, 10))); // 创建晚于事件发现日；下界钳到今日，避免未来时间
     }
 
     TASKS.push({

@@ -63,7 +63,16 @@ needTask.forEach(e => {
 check('已派发↔未完成、已关闭↔已完成 映射一致', wrongMap.length === 0, wrongMap.join(', '));
 
 console.log('== 5. 时序自洽（发现 ≤ 创建 ≤ 截止 ≤ 完成）==');
-function d(s) { return new Date(String(s).replace(' ', 'T')); }
+function d(s) {
+  // 注意：fmtDate 只产出 'YYYY-MM-DD'（本地日期，无时间部分）。
+  // new Date('2026-10-22') 按 ES 规范会被解析成 UTC 午夜 = 北京 08:00，
+  // 导致每天 08:00 之前运行时，任何「今天」的创建时间都被误判为未来。
+  // 故纯日期串显式按本地时区构造。
+  var str = String(s).replace(' ', 'T');
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Date(str);
+}
 const seqBad = [];
 needTask.forEach(e => {
   const t = bySrc[e.id] && bySrc[e.id][0];
