@@ -66,7 +66,9 @@ DIM_NAME = {'op': '经营风险', 'fin': '财务风险', 'legal': '司法风险'
 KEY_MAP = {'op': 'riskOp', 'fin': 'riskFin', 'legal': 'riskLegal', 'credit': 'riskCredit',
            'tender': 'riskTender', 'tax': 'riskTax', 'commit': 'riskCommit', 'ip': 'riskIp'}
 
-TODAY = date(2026, 10, 21)
+TODAY = date.today()
+# 注：企业年龄（age）与「新增企业」判断用真实当天日期，跨年自动正确；
+#     任务 dueDate / 项目 startDate 等演示日期另用固定 2026 字面量，保持演示数据稳定。
 
 # 年报未公示的财务字段（保留企业名用于审计输出；这些字段一律记 0，不推导）
 MISSING_FIELDS = {}
@@ -569,7 +571,7 @@ def main():
             if _fin.get('profit') is None:
                 MISSING_FIELDS.setdefault('profit', []).append(name)
 
-        is_new = est_year >= 2025
+        is_new = est_year >= TODAY.year - 1
         eid = f'E{i:03d}'
 
         enterprises.append({
