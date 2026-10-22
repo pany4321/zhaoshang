@@ -68,6 +68,9 @@ KEY_MAP = {'op': 'riskOp', 'fin': 'riskFin', 'legal': 'riskLegal', 'credit': 'ri
 
 TODAY = date(2026, 10, 21)
 
+# 年报未公示的财务字段（保留企业名用于审计输出；这些字段一律记 0，不推导）
+MISSING_FIELDS = {}
+
 
 def dh(*parts) -> int:
     h = hashlib.md5('|'.join(str(p) for p in parts).encode('utf-8')).hexdigest()
@@ -552,13 +555,19 @@ def main():
         _fin = financials.get(cc)
         if _fin and _fin.get('revenue') and _fin['revenue'] > 0:
             fin_year = str(_fin['year'])
+            # ★ 一旦有真实年报，财务四项全部取年报值；年报未公示的字段记 0，
+            #   绝不回落到 build_ops() 的规则推导值——宁可显示 0，也不拿推导值冒充真实数。
+            #   （旧实现 tax/profit 为 None 时保留推导值，曾使 1 家纳税额被推导污染）
             revenue = round(_fin['revenue'], 1)
-            if _fin.get('tax') is not None:
-                tax = round(max(0.0, _fin['tax']), 1)
-            if _fin.get('asset') and _fin['asset'] > 0:
-                asset_total = round(_fin['asset'], 1)
-            if _fin.get('profit') is not None:
-                net_profit = round(_fin['profit'], 1)
+            tax = round(max(0.0, _fin.get('tax') or 0.0), 1)
+            asset_total = round(max(0.0, _fin.get('asset') or 0.0), 1)
+            net_profit = round(_fin.get('profit') or 0.0, 1)
+            if _fin.get('tax') is None:
+                MISSING_FIELDS.setdefault('tax', []).append(name)
+            if _fin.get('asset') is None:
+                MISSING_FIELDS.setdefault('asset', []).append(name)
+            if _fin.get('profit') is None:
+                MISSING_FIELDS.setdefault('profit', []).append(name)
 
         is_new = est_year >= 2025
         eid = f'E{i:03d}'
@@ -764,6 +773,18 @@ def main():
         print('   处理：从 enterprises.csv 剔除这些企业，或补齐其年报数据后重试。')
         raise SystemExit(1)
     print(f'   ✅ 财务真实性校验通过：{len(enterprises)}/{len(enterprises)} 家企业均有真实年报财务')
+
+    # ★ 年报「部分公示」审计：营收有值但纳税/资产/净利润未公示的企业，
+    #   这些字段记 0（不推导）。此处如实列出家数，供文档口径核对。
+    if MISSING_FIELDS:
+        print()
+        print('   年报部分字段未公示（记 0，未做推导）：')
+        for k, label in (('tax', '纳税'), ('asset', '资产总额'), ('profit', '净利润')):
+            names = MISSING_FIELDS.get(k) or []
+            if names:
+                print(f'     {label}: {len(names)} 家 — {"、".join(names[:5])}')
+    else:
+        print('   ✅ 年报营收/纳税/资产/净利润四项均完整公示，无字段缺失')
 
 
 if __name__ == '__main__':
