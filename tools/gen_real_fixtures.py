@@ -327,12 +327,18 @@ def load_financials():
             y = int(r.get('report_year') or 0)
         except ValueError:
             continue
+        rev = num(r.get('business_income'))
+        # ★ 只在「公示了数值型营收且 > 0」的年份里挑最新的一年。
+        #   旧实现先取最新年份、再判断营收是否为空：把「早年有营收、最新年未公示」
+        #   的企业整条丢掉，退化成规则推导值（120 家样本里曾因此混入 95 家推导值）。
+        if not (rev and rev > 0):
+            continue
         cur = best.get(cc)
         if cur and y <= cur['year']:
             continue
         best[cc] = {
             'year': y,
-            'revenue': num(r.get('business_income')),
+            'revenue': rev,
             'tax': num(r.get('tax_amount')),
             'asset': num(r.get('total_amount')),
             'profit': num(r.get('profit_amount')),
@@ -746,6 +752,18 @@ def main():
     print(f'   营收合计 {sum(e["revenue"] for e in enterprises)/10000:.1f} 亿 | 纳税 {sum(e["tax"] for e in enterprises)/10000:.2f} 亿')
     print(f'   重点企业 {sum(1 for e in enterprises if e["isKey"])} | 本月新增 {sum(1 for e in enterprises if e["isNew"])}')
     print(f'   信用状态: {dict(Counter(e["creditStatus"] for e in enterprises))}')
+
+    # ★ 硬性校验：所有入库企业必须有真实年报财务（finYear 非空）。
+    #   规则推导值不得混入样本——宁可样本变少，也不凑数。
+    no_fin = [e for e in enterprises if not e.get('finYear')]
+    if no_fin:
+        print()
+        print(f'❌ 有 {len(no_fin)} 家企业缺少真实年报财务数据（finYear 为空），拒绝生成：')
+        for e in no_fin[:10]:
+            print(f'     {e["id"]} {e["name"]} revenue={e.get("revenue")}')
+        print('   处理：从 enterprises.csv 剔除这些企业，或补齐其年报数据后重试。')
+        raise SystemExit(1)
+    print(f'   ✅ 财务真实性校验通过：{len(enterprises)}/{len(enterprises)} 家企业均有真实年报财务')
 
 
 if __name__ == '__main__':
