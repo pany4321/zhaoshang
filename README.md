@@ -256,7 +256,7 @@ Vue 壳只负责：登录鉴权、路由托管、数据下发与工作流动作�
 cd server
 npm install
 npm run db:migrate    # 初始化数据库表
-npm run db:seed       # 生成 120 家企业 + 67 条风险事件 + 19 个项目等演示数据
+npm run db:seed       # 载入 real-fixtures：88 家企业（全真实年报财务）+ 67 风险事件 + 19 项目
 npm run dev           # 启动后端服务 (http://localhost:3000)
 
 # 2. 新开一个终端，启动前端
@@ -354,14 +354,14 @@ npm run dev           # 启动前端开发服务器 (http://localhost:5173)
 | `District` | 区县 | 8 个 |
 | `Industry` | 行业 | 12 个 |
 | `User` | 用户 | 7 个 |
-| `Enterprise` | 企业 | 120 家（含股东） |
+| `Enterprise` | 企业 | 88 家（含股东，真实工商样本） |
 | `RiskEvent` | 风险事件 | 67 条（demo fixtures 为 61） |
 | `Task` | 任务 | 78 条（demo fixtures 为 75） |
 | `Project` | 招商项目 | 19 个 |
 | `Policy` | 政策 | 24 条 |
 | `AiConversation` | AI 对话 | 运行时生成 |
 
-> **载入量以 `server/prisma/seed.ts` 实际读取为准**：优先 `real-fixtures.json`（真实工商数据），缺失时回退 `demo-fixtures.json`。两套差异在风险事件 67/61、任务 78/75；real 另含 288 条司法案件。
+> **载入量以 `server/prisma/seed.ts` 实际读取为准**：优先 `real-fixtures.json`（真实工商数据），缺失时回退 `demo-fixtures.json`。两套差异在风险事件 67/61、任务 78/75；real 口径为 **88 家企业（全部有工商年报公示的数值型财务）**，另含 108 条司法案件（每家最多取最近 8 件）。企业数随每日同步变动，**以上为当前值，一律以 `tools/gen_real_fixtures.py` 实际输出为准**。
 
 风险八维加权模型与等级阈值（红≥65 / 橙≥45 / 黄≥25 / 蓝）与 demo `mock.js` 同源。
 
@@ -396,7 +396,7 @@ npm run preview       # 本地预览生产构建
 
 > **数据口径（单一事实源）**：server 演示数据由 `demo/assets/data/mock.js` 导出的
 > `server/prisma/demo-fixtures.json` 驱动（`node tools/export_demo_fixtures.cjs` 重新导出），
-> 与纯前端 demo 完全同口径（120 家企业 / 67 条风险事件 / 78 条任务 / 24 条政策 / 19 个项目）。
+> **注意两套口径**：`demo-fixtures.json` 与纯前端 demo 同口径（120 家企业 / 61 条风险事件 / 75 条任务 / 24 条政策 / 19 个项目）；但 `seed.ts` **优先读 `real-fixtures.json`**，实际载入为 88 家企业（全部有真实年报财务）/ 67 条风险事件 / 78 条任务 / 24 条政策 / 19 个项目。
 > 对账校验：`node tools/check_data_parity.cjs`。
 
 ---
