@@ -361,7 +361,7 @@ npm run dev           # 启动前端开发服务器 (http://localhost:5173)
 | `Policy` | 政策 | 24 条 |
 | `AiConversation` | AI 对话 | 运行时生成 |
 
-> **载入量以 `server/prisma/seed.ts` 实际读取为准**：优先 `real-fixtures.json`（真实工商数据），缺失时回退 `demo-fixtures.json`。两套差异在风险事件 67/61、任务 78/75；real 口径为 **88 家企业（全部有工商年报公示的数值型财务）**，另含 108 条司法案件（每家最多取最近 8 件）。企业数随每日同步变动，**以上为当前值，一律以 `tools/gen_real_fixtures.py` 实际输出为准**。
+> **载入量以 `server/prisma/seed.ts` 实际读取为准**：优先 `real-fixtures.json`（真实工商数据），缺失时回退 `demo-fixtures.json`。两套差异在风险事件 67/61、任务 78/75；real 口径为 **88 家企业（全部有工商年报公示的数值型财务）**，另含 108 条司法案件（每家最多取最近 8 件）。**样本已锁定为 88 家**（2026-10-22 起暂停每日同步任务），不再随同步变动；如需重新生成，以 `tools/gen_real_fixtures.py` 实际输出为准。
 
 风险八维加权模型与等级阈值（红≥65 / 橙≥45 / 黄≥25 / 蓝）与 demo `mock.js` 同源。
 
