@@ -12,7 +12,7 @@
 - `web/` — 前端（Vue 3 + Vite + Pinia 壳；构建经 manualChunks 分包 echarts/vue），在 `web/public/engine/` **vendor 了 demo 引擎**（与 `demo/` 相同的 style.css、页面渲染器、components），并回放服务器数据。**不要用 Vue 重写页面——扩展引擎**。
 - `README.md` — V5 全栈版快速上手指南。
 
-V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /api/bootstrap` 一次性下发全部实体，`web/src/engine/adapter.ts` 映射为 demo MOCK 形状，`MOCK_ENGINE.rebuild()`（`web/public/engine/mock.js`）重算全部派生结构（聚合、图谱、AI 日报、政策兑现），保证页页数字对账。**服务器数据由 fixtures 驱动**：`tools/export_demo_fixtures.cjs` 将 demo MOCK 实体导出为 `server/prisma/demo-fixtures.json`（demo 口径：120 企业 / 67 风险事件 / 78 任务 / 24 政策 / 19 项目），`server/prisma/seed-data.ts` 只负责入库——demo 是单一事实源；`tools/check_data_parity.cjs`（run_all 内）对任何漂移报失败。工作流动作（风险派发、任务办结、企业/项目建档、阶段备注、政策入库、AI 会话）经 `APP.sync` 钩子（`web/src/engine/engine.ts`）落库。API 不可达时引擎回退内置演示数据，`MainLayout` 显示「⚠ 本地演示数据」角标（`engine.ts` 的 `engineSource` ref）。登录成功（`POST /api/auth/login` → 前端调 `POST /api/auth/reset-demo`）会重置全部演示数据到种子态，每场演示从干净态开始；随后前端整页跳转，引擎以新数据重新引导。
+V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /api/bootstrap` 一次性下发全部实体，`web/src/engine/adapter.ts` 映射为 demo MOCK 形状，`MOCK_ENGINE.rebuild()`（`web/public/engine/mock.js`）重算全部派生结构（聚合、图谱、AI 日报、政策兑现），保证页页数字对账。**服务器数据由 fixtures 驱动**：`tools/export_demo_fixtures.cjs` 将 demo MOCK 实体导出为 `server/prisma/demo-fixtures.json`（demo 口径：120 企业 / **61 风险事件 / 75 任务** / 24 政策 / 19 项目）。注意 `seed-data.ts` **优先读 `real-fixtures.json`**（真实工商数据，存在时即用它；其为 67 事件 / 78 任务 / 288 司法案件），缺失才回退 demo-fixtures——demo 是单一事实源；`tools/check_data_parity.cjs`（run_all 内）对任何漂移报失败。工作流动作（风险派发、任务办结、企业/项目建档、阶段备注、政策入库、AI 会话）经 `APP.sync` 钩子（`web/src/engine/engine.ts`）落库。API 不可达时引擎回退内置演示数据，`MainLayout` 显示「⚠ 本地演示数据」角标（`engine.ts` 的 `engineSource` ref）。登录成功（`POST /api/auth/login` → 前端调 `POST /api/auth/reset-demo`）会重置全部演示数据到种子态，每场演示从干净态开始；随后前端整页跳转，引擎以新数据重新引导。
 
 - `demo/DEMO操作说明.md`、`demo/汇报串联脚本.md` — 演示手册与汇报串联脚本。
 - `docs/archive/` — 仅作参考的历史文档（V4 改进大纲与已被取代的 V3.1 / V4.0 / V5.0 需求草稿）。现行权威为根目录《系统需求分析说明书_V5.0_深化版》。
@@ -57,12 +57,13 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 | `tools/export_demo_fixtures.cjs` 映射逻辑 | `npm run fixtures` → `npm run parity` → `npm run test:api` |
 | 需求说明书 / DEMO 文档 | 无自动校验；一切数据底数以 `npm run parity` 的输出为准，不得写入与 demo/server 冲突的数字 |
 
-### 工具速览（tools/ 全部 29 个，各自归位）
+### 工具速览（tools/ 全部 35 个，各自归位）
 
 **同步/生成（demo 是唯一基准，改 demo 后必跑）**
 - `sync_engine.py` — demo 引擎文件（含 style.css）→ `web/public/engine/`（内含 mock.js 再生）；`--check` 仅校验。`run_all` 首步自动执行该校验。
 - `build_engine_mock.py` — demo mock.js → web mock.js（由 sync_engine 代跑，含 `R.R.`/括号自检）。
 - `export_demo_fixtures.cjs` — demo mock → `server/prisma/demo-fixtures.json`（server seed 的唯一数据源）。
+- `gen_real_fixtures.py` — 由真实工商数据生成 `server/prisma/real-fixtures.json`（存在时 seed **优先**读它，覆盖 demo-fixtures）。
 - `make_pdf_font.py` — 生成 PDF 中文子集 `demo/assets/vendor/pdf-font-zh.js`（仅字体来源或字符集变化时）。
 - `update_geo_real.py` — 拉取阿里云 DataV GeoAtlas 官方行政边界（庆阳 621000_full，8 区县）替换 mock.js 的 GEO_QINGYANG（地图精度基准；免费公开数据，一次拉取离线内置）。
 - `publish.mjs` — `web/dist` → `server/public` 并调用 `precompress.mjs`。`npm run build:web` 已内置，**不要手敲 cp**——漏跑预压缩不会报错，只表现为「首屏又变慢了」。
@@ -70,8 +71,23 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 
 **测试/校验（由 run_all 编排，一般不单独跑）**
 - `run_all.cjs` — 统一入口：首步引擎一致性前置检查（漂移即失败）→ 静态脚本 → server 在跑时追加接口回归（未运行 SKIP 并提示启动命令）。`npm test` 即它。
-- `smoke_test.js`（9 页渲染）、`smoke_interaction.js`（数据对账+下钻链路，失败即非零退出）、`check_invariants.js`（风险三态不变量）、`check_data_parity.cjs`（fixtures 对账）、`test_engine_rebuild.cjs`（web mock rebuild）、`verify_login.cjs`（demo 登录门禁）、`verify_industry_responsive.cjs`、`verify_profile_responsive.cjs`、`verify_policy_jump.cjs`（专项回归）、`verify_web_api.cjs`（server 接口链路，需运行中 server）。
+- `smoke_test.js`（9 页渲染）、`smoke_interaction.js`（数据对账+下钻链路，失败即非零退出）、`check_invariants.js`（风险三态不变量）、`check_data_parity.cjs`（fixtures 对账）、`test_engine_rebuild.cjs`（web mock rebuild）、`verify_login.cjs`（demo 登录门禁）、`verify_industry_responsive.cjs`、`verify_profile_responsive.cjs`、`verify_policy_jump.cjs`（专项回归）、`verify_ai_lead_admission.js`（AI 推荐「确认纳入」线索字段真实性）、`verify_web_api.cjs`（server 接口链路，需运行中 server）。
 - 游离脚本：`verify_pdf_export.js`（PDF 导出全流程，改字体/导出链路时手动跑）。
+
+**运维 / 备份 / 隧道（仅部署环境需要，不进 run_all）**
+- `health_check.sh` — 巡检入口：服务、隧道、数据、磁盘一次检查。**一切正常时无输出**（供 cron 调用，避免刷消息），异常才打印。
+- `presence_check.sh` — 演示就绪检查：一条命令确认「服务活着 + 隧道通 + 数据在 + 登录可用」，失败自动拉起。
+- `tunnel_check.sh` — Named Tunnel 健康探测 / 自愈，供上面两个脚本共用。
+- `tunnel_guard.sh` — 应用进程 + 固定域名隧道的守护循环（由 `tunnelGuard.ts` 拉起）。
+- `zhaoshang_watchdog.sh` — 看门狗：容器重建后 node / cloudflared 进程消失时拉起业务进程。
+- `keepalive.sh` — 保活 + 自愈（cron 每 4 分钟）。**注意**：cron 实际调用 `workspace/keepalive.sh`，项目内此文件只是源副本，改后必须 `cp` 同步。
+- `backup_db.mjs` — SQLite 在线备份，用 `VACUUM INTO` 生成一致性快照（无需停服、不受写入影响）。
+- `restore_db.mjs` — 从指定备份（或最新备份）恢复 `data/demo.db`。
+- `cf_setup.py` — Cloudflare Named Tunnel 自动配置。
+- `cf_set_ingress.py` — 为已存在的 Named Tunnel 配置 Public Hostname / ingress 规则。
+
+**提交防护**
+- `pre-commit-check.sh` — 提交前敏感信息拦截（`.env*` 各种变体、真实数据、编译产物、日志、`sk-` 形态密钥字面量）。安装：`cp tools/pre-commit-check.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`。
 
 **诊断（按需，不进 run_all）**
 - `scan_balance.py` / `trace_depth.py` — mock.js 括号配平与结构标记定位（排查生成产物时用）。
@@ -126,7 +142,7 @@ echarts.min.js → jspdf.umd.min.js → jspdf.plugin.autotable.min.js → mock.j
 - `workbench.js` — 招商专员工作台（KPI、任务清单筛选、今日待办、动态流）
 - `project.js` — 招商项目全生命周期（漏斗、卡片网格、6 阶段时间线、详情抽屉、AI 智能推荐）
 - `policy.js` — 政策服务（分类侧栏、搜索、卡片网格、详情含匹配企业、同步政策、AI 智能匹配）
-- `aidemo.js` — AI 智能体（4 智能体，独立会话上下文，预脚本回复）
+- `aidemo.js` — AI 智能体（4 智能体，独立会话上下文；对话走后端 `POST /api/ai/chat` 调真实大模型 + 工具查询，`generateReply` 仅在模型不可用时兜底）
 
 **`assets/js/app.js`** — 入口：`render()`、`viewEnterprise()`、`goRisk()`、`handleDispatch()`、`goDispatch()`、一键演示、全局绑定（导航、全屏、区县、时钟、ESC）。
 

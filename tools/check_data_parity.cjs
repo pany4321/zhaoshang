@@ -184,9 +184,75 @@ const M = ctx.window.MOCK;
 const F = JSON.parse(fs.readFileSync(OUT, 'utf-8'));
 
 const STATUS_MAP = { '待处置': 'pending', '已派发': 'doing', '已关闭': 'done' };
-const sorted = v => (v && typeof v === 'object' && !Array.isArray(v))
-  ? Object.keys(v).sort().reduce((o, k) => (o[k] = v[k], o), {})
-  : v;
+
+// ============================================================
+// 字段名对照表 ★ 单一事实源
+//
+// 历史事故：政策两侧主键异名（fixtures=id / demo=code）。断言里写死 'id' 时
+// demo 侧全部取到 undefined，输出「实际=P01,P02… 期望=,,,,,,」。
+// 若两侧同时取错（例如把 name 也写成 id），两侧都是 undefined，会静默通过。
+//
+// 现在：所有「两侧字段名可能不同」的取值只在本表声明一次。
+// 结构： 逻辑字段名: [fixtures 侧字段名, demo 侧字段名]
+//        两侧同名时只写一项（第二项省略）
+// ============================================================
+// 字段名来源：用脚本加载 demo/assets/data/mock.js 后 dump Object.keys(样本[0])。
+// 不要凭猜测填 —— 首轮凭假设填了 8 个字段名，被下面的自检当场全部打回。
+const FIELD = {
+  //            fixtures 侧字段              demo 侧字段（MOCK）
+  district:   { id: ['id', 'key'] },
+  industry:   { id: ['id', 'key'] },
+  enterprise: { id: ['id'], name: ['name'], riskLevel: ['riskLevel'],
+                districtId: ['districtId', 'district'],
+                industryId: ['industryId', 'industry'] },
+  riskEvent:  { id: ['id'], status: ['status'],
+                enterpriseId: ['enterpriseId', 'entId'] },
+  project:    { id: ['id'], name: ['name'],
+                enterpriseId: ['enterpriseId', 'enterprise'] },
+  policy:     { id: ['id', 'code'], name: ['title', 'name'] },
+  // demo-fixtures 的 tasks 不含 id 字段（导出时未带主键；real-fixtures 的 tasks 有 id，
+  // 但 REAL 模式是单侧断言、不走本表）。故不声明 task.id，也不做任务 ID 集合对比。
+  task:       { status: ['status'], enterpriseId: ['enterpriseId', 'enterprise'] },
+};
+
+// side: 'f' = fixtures 侧（server 形状）, 'd' = demo 侧（MOCK 形状）
+function fld(entity, logical, side) {
+  const pair = (FIELD[entity] || {})[logical];
+  if (!pair) throw new Error(`FIELD 未声明: ${entity}.${logical}`);
+  return side === 'd' ? (pair[1] || pair[0]) : pair[0];
+}
+
+// 字段表自检：表里声明的每个字段名，必须在两侧数据中真的能取到值。
+// 没有这一步，常量表自身写错（如 'code' 写成 'codes'）会退化成原来那个
+// 「全 undefined → 静默假阴性」的坑，且更难发现——因为看起来"已经治理过了"。
+function verifyFieldTable() {
+  const ENTITIES = [
+    ['district',   F.districts,   M.DISTRICTS],
+    ['industry',   F.industries,  M.INDUSTRIES],
+    ['enterprise', F.enterprises, M.ENTERPRISES],
+    ['riskEvent',  F.riskEvents,  M.RISK_EVENTS],
+    ['project',    F.projects,    M.PROJECTS],
+    ['policy',     F.policies,    M.POLICY_LIB],
+    ['task',       F.tasks,       M.TASKS],
+  ];
+  let bad = 0;
+  for (const [entity, fRows, dRows] of ENTITIES) {
+    if (!Array.isArray(fRows) || !fRows.length) continue;
+    if (!Array.isArray(dRows) || !dRows.length) continue;
+    for (const logical of Object.keys(FIELD[entity] || {})) {
+      for (const [side, rows, label] of [['f', fRows, 'fixtures'], ['d', dRows, 'demo']]) {
+        const key = fld(entity, logical, side);
+        const miss = rows.filter(r => r == null || !(key in r)).length;
+        if (miss) {
+          bad++;
+          console.log(`[❌] 字段表自检 ${entity}.${logical} → ${label} 侧 '${key}' 有 ${miss}/${rows.length} 条取不到`);
+        }
+      }
+    }
+  }
+  if (!bad) console.log('[✅] 字段表自检：所有声明字段在两侧均可取值');
+  return bad;
+}
 
 // 1. 五类实体 + 字典计数
 check('区县数', F.districts.length, M.DISTRICTS.length);
@@ -197,36 +263,57 @@ check('项目数', F.projects.length, M.PROJECTS.length);
 check('任务数', F.tasks.length, M.TASKS.length);
 check('政策数', F.policies.length, M.POLICY_LIB.length);
 
-// 2. ID 集合一致
-const idsets = (arr, key) => arr.map(x => x[key]).sort().join(',');
-check('企业 ID 集合', idsets(F.enterprises, 'id'), idsets(M.ENTERPRISES, 'id'));
-check('风险事件 ID 集合', idsets(F.riskEvents, 'id'), idsets(M.RISK_EVENTS, 'id'));
-check('项目 ID 集合', idsets(F.projects, 'id'), idsets(M.PROJECTS, 'id'));
-// 注意：demo 侧政策对象的主键字段名是 code（P01…），导出到 fixtures 时映射为 id；
-// 此处不能统一取 'id'，否则 mock 侧全部取到 undefined。其余实体两侧同名。
-check('政策 ID 集合', idsets(F.policies, 'id'), idsets(M.POLICY_LIB, 'code'));
+// 1b. 字段表自检（必须早于任何取字段断言，否则后面的失败无从归因）
+fails += verifyFieldTable();
+
+// 2. ID 集合一致 —— 字段名一律走 FIELD 表
+const idsets = (arr, entity, side) => arr.map(x => x[fld(entity, 'id', side)]).sort().join(',');
+check('企业 ID 集合', idsets(F.enterprises, 'enterprise', 'f'), idsets(M.ENTERPRISES, 'enterprise', 'd'));
+check('风险事件 ID 集合', idsets(F.riskEvents, 'riskEvent', 'f'), idsets(M.RISK_EVENTS, 'riskEvent', 'd'));
+check('项目 ID 集合', idsets(F.projects, 'project', 'f'), idsets(M.PROJECTS, 'project', 'd'));
+// 政策两侧主键异名（fixtures=id / demo=code）：差异只在 FIELD.policy.id 声明，调用处不再出现字面量
+check('政策 ID 集合', idsets(F.policies, 'policy', 'f'), idsets(M.POLICY_LIB, 'policy', 'd'));
 
 // 3. 分布与顺序
-const dist = (arr, key) => {
+const sorted = v => (v && typeof v === 'object' && !Array.isArray(v))
+  ? Object.keys(v).sort().reduce((o, k) => (o[k] = v[k], o), {})
+  : v;
+const dist = (arr, entity, logical, side) => {
+  const key = fld(entity, logical, side);
   const o = {};
   for (const x of arr) o[x[key]] = (o[x[key]] || 0) + 1;
   return sorted(o);
 };
-check('红/橙/黄/蓝 企业分布', dist(F.enterprises, 'riskLevel'), dist(M.ENTERPRISES, 'riskLevel'));
+check('红/橙/黄/蓝 企业分布',
+  dist(F.enterprises, 'enterprise', 'riskLevel', 'f'),
+  dist(M.ENTERPRISES, 'enterprise', 'riskLevel', 'd'));
+// 风险事件状态：fixtures 侧是英文枚举，demo 侧是中文 —— 这是「取值」差异不是「字段名」差异，
+// 故仍走 STATUS_MAP；字段名本身取 FIELD.riskEvent.status（两侧同为 status）。
+const DEMO_STATUS_KEY = fld('riskEvent', 'status', 'd');
 check('风险事件三态分布',
-  dist(F.riskEvents, 'status'),
-  dist(M.RISK_EVENTS.map(e => ({ status: STATUS_MAP[e.status] || e.status })), 'status'));
-check('政策名称一致（按序）', F.policies.map(p => p.title), M.POLICY_LIB.map(p => p.name));
-check('企业名称一致（按序）', F.enterprises.map(p => p.name), M.ENTERPRISES.map(e => e.name));
+  dist(F.riskEvents, 'riskEvent', 'status', 'f'),
+  dist(M.RISK_EVENTS.map(e => ({ [DEMO_STATUS_KEY]: STATUS_MAP[e[DEMO_STATUS_KEY]] || e[DEMO_STATUS_KEY] })),
+    'riskEvent', 'status', 'd'));
+// 政策名称同样两侧异名（fixtures=title / demo=name），走 FIELD.policy.name
+check('政策名称一致（按序）',
+  F.policies.map(p => p[fld('policy', 'name', 'f')]),
+  M.POLICY_LIB.map(p => p[fld('policy', 'name', 'd')]));
+check('企业名称一致（按序）',
+  F.enterprises.map(p => p[fld('enterprise', 'name', 'f')]),
+  M.ENTERPRISES.map(e => e[fld('enterprise', 'name', 'd')]));
 
 // 4. 引用完整性
-const entIds = new Set(F.enterprises.map(e => e.id));
-check('风险事件企业引用完整', F.riskEvents.filter(e => !entIds.has(e.enterpriseId)).length, 0);
-check('项目企业引用完整', F.projects.filter(p => !entIds.has(p.enterpriseId)).length, 0);
-const districtIds = new Set(F.districts.map(d => d.id));
-check('企业区县引用完整', F.enterprises.filter(e => !districtIds.has(e.districtId)).length, 0);
-const industryIds = new Set(F.industries.map(d => d.id));
-check('企业行业引用完整', F.enterprises.filter(e => !industryIds.has(e.industryId)).length, 0);
+const entIds = new Set(F.enterprises.map(e => e[fld('enterprise', 'id', 'f')]));
+check('风险事件企业引用完整',
+  F.riskEvents.filter(e => !entIds.has(e[fld('riskEvent', 'enterpriseId', 'f')])).length, 0);
+check('项目企业引用完整',
+  F.projects.filter(p => !entIds.has(p[fld('project', 'enterpriseId', 'f')])).length, 0);
+const districtIds = new Set(F.districts.map(d => d[fld('district', 'id', 'f')]));
+check('企业区县引用完整',
+  F.enterprises.filter(e => !districtIds.has(e[fld('enterprise', 'districtId', 'f')])).length, 0);
+const industryIds = new Set(F.industries.map(d => d[fld('industry', 'id', 'f')]));
+check('企业行业引用完整',
+  F.enterprises.filter(e => !industryIds.has(e[fld('enterprise', 'industryId', 'f')])).length, 0);
 
 console.log('\n========================================');
 if (fails) {

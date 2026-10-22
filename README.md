@@ -159,7 +159,7 @@ node tools/check_invariants.js
 ### 1.8 ⚠️ 说明
 
 - 本原型为**演示用途**，数据均为模拟生成（固定种子），不代表任何真实企业。
-- AI 智能体使用**预置脚本回复**（`generateReply` 确定性话术），未对接真实大模型；智能体话术中的「九维」为口语口径，实际风险模型为**八维**（见 `mock.js` 的 `RISK_DIMS`）。
+- AI 智能体使用**预置脚本回复**（`generateReply` 确定性话术）——纯前端版无后端，只能如此；**全栈版已接入真实大模型**（见 2.10、3.3）。智能体话术中的「九维」为口语口径，实际风险模型为**八维**（见 `mock.js` 的 `RISK_DIMS`）。
 - 纯前端**无后端、无鉴权、无持久化落库**：所有交互在内存中，刷新后回到种子初始态（仅登录态由 localStorage 保留）。
 - 风险事件派发 / 任务办结等「闭环」为前端内存态演示，不落库；如需真实工作流闭环与落库，请使用前后端分离部署版（见第二部分）。
 - 第三方库全部本地内置，**完全离线可用**，无需联网或安装依赖。
@@ -188,8 +188,12 @@ node tools/check_invariants.js
 │   │   └── seed.ts          # 演示数据生成脚本（与 demo mock.js 同源同种子）
 │   ├── src/
 │   │   ├── index.ts         # Fastify 入口
-│   │   ├── routes/          # API 路由（auth/bootstrap/enterprise/risk/project/
-│   │   │                    #   workbench/policy/graph/ai/dict/search/dashboard）
+│   │   ├── routes/          # API 路由 14 个模块（auth/audit/config/dict/bootstrap/
+│   │   │                    #   dashboard/enterprise/risk/project/workbench/policy/
+│   │   │                    #   graph/ai/search）；system 指标端点定义在 index.ts
+│   │   ├── services/        # 业务与集成：llm（大模型客户端）/ aiTools（本地查询工具）/
+│   │   │                    #   mcpClient + dorisTools（数据仓库 MCP）/ selfCheck /
+│   │   │                    #   tunnelGuard / dailySync / backupScheduler
 │   │   └── utils/           # 工具函数（Prisma、风险模型、helper）
 │   ├── data/                # SQLite 数据库文件（git 忽略）
 │   └── package.json
@@ -307,6 +311,8 @@ npm run dev           # 启动前端开发服务器 (http://localhost:5173)
 - **Prisma** 5.20 — ORM & 迁移
 - **SQLite** — 嵌入式数据库（演示专用）
 - **TypeScript** 5.5、**@fastify/jwt**、**@fastify/cors**、**bcryptjs**
+- **大模型客户端** — OpenAI 兼容协议，支持 function calling（`services/llm.ts`）
+- **MCP 客户端** — 直连 Doris 数据仓库取数（`services/mcpClient.ts` + `dorisTools.ts`）
 
 #### 前端
 
@@ -326,7 +332,16 @@ npm run dev           # 启动前端开发服务器 (http://localhost:5173)
 | `POST /api/enterprise` · `POST /api/project` | 招商建档（企业 + 项目） |
 | `POST /api/project/:id/note` | 项目阶段进展备注 |
 | `POST /api/policy` | 政策入库 |
+| `GET/PUT /api/config/risk-weights` | 八维风险权重读写（校验合计 100%） |
+| `GET /api/config/sync-status` · `POST /api/config/sync-data` | 数据同步状态与触发 |
+| `GET /api/system/metrics` · `/api/system/selfcheck` | 运行时指标（uptime/RSS/heap/库体积/备份数/AI 降级率）与启动自检 |
+| `GET /api/audit/stats` | 操作审计检索与统计 |
 | `GET/POST /api/ai/history·sync/:agentType` | AI 会话持久化 |
+| `POST /api/ai/chat/:agentType` | 智能体对话（真实大模型，5 工具 / 最多 5 轮 tool calling） |
+| `POST /api/ai/judge` | 企业综合研判 |
+| `POST /api/ai/risk-assess` | 风险评估解读 |
+| `POST /api/ai/policy-match` | 政策智能匹配 |
+| `POST /api/ai/project-recommend` | 招商推荐 |
 
 ---
 
@@ -334,17 +349,19 @@ npm run dev           # 启动前端开发服务器 (http://localhost:5173)
 
 核心数据表：
 
-| 表名 | 说明 | 演示数据量 |
+| 表名 | 说明 | 载入量 |
 | ------ | ------ | ----------- |
 | `District` | 区县 | 8 个 |
 | `Industry` | 行业 | 12 个 |
 | `User` | 用户 | 7 个 |
 | `Enterprise` | 企业 | 120 家（含股东） |
-| `RiskEvent` | 风险事件 | 67 条 |
-| `Task` | 任务 | 78 条 |
+| `RiskEvent` | 风险事件 | 67 条（demo fixtures 为 61） |
+| `Task` | 任务 | 78 条（demo fixtures 为 75） |
 | `Project` | 招商项目 | 19 个 |
 | `Policy` | 政策 | 24 条 |
 | `AiConversation` | AI 对话 | 运行时生成 |
+
+> **载入量以 `server/prisma/seed.ts` 实际读取为准**：优先 `real-fixtures.json`（真实工商数据），缺失时回退 `demo-fixtures.json`。两套差异在风险事件 67/61、任务 78/75；real 另含 288 条司法案件。
 
 风险八维加权模型与等级阈值（红≥65 / 橙≥45 / 黄≥25 / 蓝）与 demo `mock.js` 同源。
 
@@ -421,7 +438,7 @@ cd ../server && npm run build && npm start
 ### 2.10 ⚠️ 说明
 
 - 本系统为**演示用途**，数据均为模拟生成，不代表任何真实企业
-- AI 智能体使用**预置脚本回复**，未对接真实大模型
+- AI 能力**已接入真实大模型**（OpenAI 兼容协议，端点与凭据走 `server/.env`），含 5 个工具、最多 5 轮 tool calling、数据仓库 MCP 直连；模型不可用时自动降级为规则话术，详见 3.3
 - SQLite 适合单机演示，生产环境建议更换为 PostgreSQL / MySQL
 - JWT 密钥请在部署时更换为安全随机字符串
 
@@ -446,9 +463,9 @@ cd ../server && npm run build && npm start
 
 | 能力域 | 当前原型状态 | 生产交付要求 | 优先级 |
 | --- | --- | --- | --- |
-| 数据接入与治理 | 11 类数据源为展示项，全部数据由 fixtures 生成 | 真实政务数据源对接 + 采集调度 + 质量监控 | ★★★ |
+| 数据接入与治理 | 演示数据由 fixtures 生成；AI 智能体可经 MCP 直连 Doris 数据仓库查全量企业数据 | 真实政务数据源对接 + 采集调度 + 质量监控 | ★★★ |
 | 身份认证与权限 | 本地 JWT，角色字段存在但无接口级拦截 | 政务统一认证 SSO + 功能/数据双层 RBAC + 审计 | ★★★ |
-| AI 能力 | 预脚本确定性话术 | 合规大模型接入 + RAG + 证据链 + 人工复核 | ★★★ |
+| AI 能力 | 已接入真实大模型（5 类能力 / 5 个工具 / 5 轮 tool calling / MCP 直连数据仓库）+ 规则降级 | 政策库 RAG + 结构化证据链 + 人工复核 + 输出治理与配额 | ★★★ |
 | 业务闭环 | 风险派发→任务→办结已打通（含演示简化） | 责任到人、督办升级、审核销号、审批流 | ★★★ |
 | 消息通知 | 无，依赖用户主动刷新 | 站内信 + 短信/政务即时通推送 | ★★ |
 | 数据库与部署 | SQLite 单文件 + 单实例 | 政务云数据库 + 集群 + 信创适配 | ★★ |
@@ -474,14 +491,33 @@ cd ../server && npm run build && npm start
 - **操作审计**：登录、派发、办结、政策推送、数据导出等关键操作全量留痕（操作人 / 时间 / IP / 对象 / 结果），支持审计检索与导出，日志留存不少于 6 个月（网络安全法要求）。
 - **账号安全**：密码复杂度与有效期策略、连续失败锁定、会话超时、敏感操作二次确认。
 
-### 3.3 🤖 AI 能力真实化（★★★）
+### 3.3 🤖 AI 能力：已接入真实模型，缺口在 RAG 与治理（★★★）
 
-现状：四个智能体与企业画像 AI 研判均为**预脚本确定性回复**（`aidemo.js` / `profile.js`），价值在于交互形态与可解释结构，不具备真实分析能力。
+现状：**AI 能力已接入真实大模型，不再是预置话术。** 5 类能力全部走真实调用：
 
-- **模型接入**：接入政务云私有化部署的大模型服务（或经审批的公有云模型），建设统一 LLM 网关，管理鉴权、限流、超时与成本；**现有预脚本话术天然就是降级预案**——模型不可用时回退规则模板，页面不空转。
-- **政策知识库 RAG**：真实政策库向量化检索，支撑政策匹配推荐与智能体问答给出可溯源的条款引用；政策库从 24 条演示数据扩展为持续维护的真实库。
-- **可解释与证据链**：AI 结论必须引用具体数据来源（现有「数据来源 / 置信度」面板结构可直接复用），扩展为逐条结论挂接证据字段。
-- **人机边界**：AI 输出标注「辅助研判」性质，高风险结论经人工复核后方可进入派发流程；建立输出内容安全过滤与违规兜底。
+| 能力 | 前端位置 | 后端接口 | 真实模型 |
+| --- | --- | --- | --- |
+| 4 个招商智能体对话 | `/aidemo` | `POST /api/ai/chat/:agentType` | ✅ `llmChatWithTools` |
+| AI 综合研判 | 企业画像 | `POST /api/ai/judge` | ✅ |
+| AI 风险评估解读 | 企业画像 | `POST /api/ai/risk-assess` | ✅ |
+| AI 政策智能匹配 | 政策库 | `POST /api/ai/policy-match` | ✅ |
+| AI 招商推荐 | 招商项目 | `POST /api/ai/project-recommend` | ✅ |
+
+对话链路（`server/src/routes/ai.ts`）：注入平台实时数据概览 → 拼 system prompt（角色 prompt + 8 条工具使用规则）→ 最多 **5 轮 tool calling 循环** → 结果落库 `AiConversation`（取最近 8 条作多轮上下文）。工具集共 5 个：
+
+- **本地 Prisma 工具 2 个**：`query_enterprises`、`get_enterprise_detail`
+- **数据仓库 MCP 工具 3 个**：`doris_list_tables`、`doris_table_schema`、`doris_query`（MCP 未配置时自动降级为仅本地工具）
+
+即智能体可**越过演示样本**，直接查数据仓库做全量统计、历史年报、招投标明细、跨表关联。端点与凭据全部走 `server/.env`（`LLM_*` / `MCP_*`），不进代码、不进仓库。
+
+**降级已实现**：模型不可用、超时（默认 60s）或返回内容为空时，`llmChat` 直接抛错，调用方回退规则路径——智能体用 `generateReply` 预置话术，风险评估 / 政策匹配 / 招商推荐用规则粗排，落库时标注 `[降级]`，页面不空转。
+
+**本节真正的待办（不是"接入模型"，而是下面四项）**：
+
+- **政策知识库 RAG**：目前政策匹配是把政策摘要塞进 prompt 做重排，**没有向量检索**。真实政策库（远超当前 24 条）必须上向量库，并对结论给出可溯源的条款引用。
+- **结构化证据链**：工具返回的数据已在回答中被引用，但没有结构化挂接（哪句结论对应哪个字段 / 哪条查询）。需把 toolResults 存入 `AiAnalysis`，做成可点击的证据。
+- **人工复核与输出治理**：高风险结论目前直接呈现，未强制走人工确认；缺内容安全过滤与违规兜底，也未做敏感词 / 越权数据拦截。
+- **成本与配额**：无按用户 / 按智能体的调用配额与费用统计；单次问答最多 5 轮 tool calling，成本需监控与限流。
 
 ### 3.4 🔁 业务闭环深化（★★★）
 

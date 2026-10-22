@@ -12,7 +12,7 @@ Deliverables folder for the《招商企业服务与智慧监管平台》(Enterpr
 - `web/` — Frontend (Vue 3 + Vite + Pinia shell; build splits echarts/vue chunks via manualChunks) that **vendors the demo engine** under `web/public/engine/` (same style.css, page renderers, components as `demo/`) and replays server data through it. Do NOT rewrite pages in Vue — extend the engine.
 - `README.md` — Quick-start guide for the V5 full-stack version.
 
-The V5 full-stack version (`server/` + `web/`) replicates all 9 demo pages 1:1: `GET /api/bootstrap` ships all entities once, `web/src/engine/adapter.ts` maps them to the demo MOCK shapes, and `MOCK_ENGINE.rebuild()` (in `web/public/engine/mock.js`) recomputes every derived structure (aggregates, graph, AI daily, policy redemption) so all page numbers reconcile with server data. **Server data is fixtures-driven**: `tools/export_demo_fixtures.cjs` exports the demo MOCK entities (demo 口径: 120 enterprises / 67 risk events / 78 tasks / 24 policies / 19 projects) to `server/prisma/demo-fixtures.json`, and `server/prisma/seed-data.ts` just persists that JSON — demo is the single source of truth; `tools/check_data_parity.cjs` (in run_all) fails on any drift. Workflow actions (risk dispatch, task finish, enterprise/project creation, stage notes, policy intake, AI conversations) persist to the backend via `APP.sync` hooks (`web/src/engine/engine.ts`). If the API is unreachable the engine falls back to the built-in seeded demo data and `MainLayout` shows a "⚠ 本地演示数据" badge (via `engineSource` ref from `engine.ts`). A successful login (`POST /api/auth/login` → frontend calls `POST /api/auth/reset-demo`) resets all demo data back to the seeded state, so every demo session starts clean; the frontend then does a full-page navigation so the engine re-boots on fresh data.
+The V5 full-stack version (`server/` + `web/`) replicates all 9 demo pages 1:1: `GET /api/bootstrap` ships all entities once, `web/src/engine/adapter.ts` maps them to the demo MOCK shapes, and `MOCK_ENGINE.rebuild()` (in `web/public/engine/mock.js`) recomputes every derived structure (aggregates, graph, AI daily, policy redemption) so all page numbers reconcile with server data. **Server data is fixtures-driven**: `tools/export_demo_fixtures.cjs` exports the demo MOCK entities (demo figures: 120 enterprises / **61 risk events / 75 tasks** / 24 policies / 19 projects). Note that `seed-data.ts` **prefers `real-fixtures.json`** (real registration data — used whenever present; it holds 67 events / 78 tasks / 288 judicial cases) and falls back to demo-fixtures only when absent; `server/prisma/seed-data.ts` just persists that JSON — demo is the single source of truth; `tools/check_data_parity.cjs` (in run_all) fails on any drift. Workflow actions (risk dispatch, task finish, enterprise/project creation, stage notes, policy intake, AI conversations) persist to the backend via `APP.sync` hooks (`web/src/engine/engine.ts`). If the API is unreachable the engine falls back to the built-in seeded demo data and `MainLayout` shows a "⚠ 本地演示数据" badge (via `engineSource` ref from `engine.ts`). A successful login (`POST /api/auth/login` → frontend calls `POST /api/auth/reset-demo`) resets all demo data back to the seeded state, so every demo session starts clean; the frontend then does a full-page navigation so the engine re-boots on fresh data.
 
 - `demo/DEMO操作说明.md`, `demo/汇报串联脚本.md` — demo manual and presentation script.
 - `docs/archive/` — historical documents kept for reference only (V4 improvement outline and the superseded V3.1 / V4.0 / V5.0 requirement drafts). The current source of truth is `招商企业服务与智慧监管平台_系统需求分析说明书_V5.0_深化版.md` at the repo root.
@@ -57,12 +57,13 @@ Open `demo/index.html` directly in a browser (Chrome/Edge). ECharts is vendored 
 | `tools/export_demo_fixtures.cjs` 映射逻辑 | `npm run fixtures` → `npm run parity` → `npm run test:api` |
 | 需求说明书 / DEMO 文档 | 无自动校验；一切数据底数以 `npm run parity` 的输出为准，不得写入与 demo/server 冲突的数字 |
 
-### 工具速览（tools/ 全部 29 个，各自归位）
+### 工具速览（tools/ 全部 35 个，各自归位）
 
 **同步/生成（demo 是唯一基准，改 demo 后必跑）**
 - `sync_engine.py` — demo 引擎文件 → `web/public/engine/`（内含 mock.js 再生）；`--check` 仅校验。`run_all` 首步自动执行该校验。
 - `build_engine_mock.py` — demo mock.js → web mock.js（由 sync_engine 代跑，含 `R.R.`/括号自检）。
 - `export_demo_fixtures.cjs` — demo mock → `server/prisma/demo-fixtures.json`（server seed 的唯一数据源）。
+- `gen_real_fixtures.py` — 由真实工商数据生成 `server/prisma/real-fixtures.json`（存在时 seed **优先**读它，覆盖 demo-fixtures）。
 - `make_pdf_font.py` — 生成 PDF 中文子集 `demo/assets/vendor/pdf-font-zh.js`（仅字体来源或字符集变化时）。
 - `update_geo_real.py` — 拉取阿里云 DataV GeoAtlas 官方行政边界（庆阳 621000_full，8 区县）替换 mock.js 的 GEO_QINGYANG（地图精度基准；免费公开数据，一次拉取离线内置）。
 - `publish.mjs` — `web/dist` → `server/public` 并调用 `precompress.mjs`。`npm run build:web` 已内置，**不要手敲 cp**——漏跑预压缩不会报错，只表现为「首屏又变慢了」。
@@ -70,7 +71,22 @@ Open `demo/index.html` directly in a browser (Chrome/Edge). ECharts is vendored 
 
 **测试/校验（由 run_all 编排，一般不单独跑）**
 - `run_all.cjs` — 统一入口：首步引擎一致性前置检查（漂移即失败）→ 9 个静态脚本 → server 在跑时追加接口回归（未运行 SKIP 并提示启动命令）。`npm test` 即它。
-- `smoke_test.js`（9 页渲染）、`smoke_interaction.js`（数据对账+下钻链路，失败即非零退出）、`check_invariants.js`（风险三态不变量）、`check_data_parity.cjs`（fixtures 对账）、`test_engine_rebuild.cjs`（web mock rebuild）、`verify_login.cjs`（demo 登录门禁）、`verify_industry_responsive.cjs`、`verify_profile_responsive.cjs`、`verify_policy_jump.cjs`（专项回归）、`verify_web_api.cjs`（server 接口链路，需运行中 server）、`verify_pdf_export.js`（PDF 导出全流程）。
+- `smoke_test.js`（9 页渲染）、`smoke_interaction.js`（数据对账+下钻链路，失败即非零退出）、`check_invariants.js`（风险三态不变量）、`check_data_parity.cjs`（fixtures 对账）、`test_engine_rebuild.cjs`（web mock rebuild）、`verify_login.cjs`（demo 登录门禁）、`verify_industry_responsive.cjs`、`verify_profile_responsive.cjs`、`verify_policy_jump.cjs`（专项回归）、`verify_ai_lead_admission.js`（AI 推荐「确认纳入」线索字段真实性）、`verify_web_api.cjs`（server 接口链路，需运行中 server）、`verify_pdf_export.js`（PDF 导出全流程）。
+
+**运维 / 备份 / 隧道（仅部署环境需要，不进 run_all）**
+- `health_check.sh` — 巡检入口：服务、隧道、数据、磁盘一次检查。**一切正常时无输出**（供 cron 调用），异常才打印。
+- `presence_check.sh` — 演示就绪检查：一条命令确认「服务活着 + 隧道通 + 数据在 + 登录可用」，失败自动拉起。
+- `tunnel_check.sh` — Named Tunnel 健康探测 / 自愈，供上面两个脚本共用。
+- `tunnel_guard.sh` — 应用进程 + 固定域名隧道的守护循环（由 `tunnelGuard.ts` 拉起）。
+- `zhaoshang_watchdog.sh` — 看门狗：容器重建后 node / cloudflared 进程消失时拉起业务进程。
+- `keepalive.sh` — 保活 + 自愈（cron 每 4 分钟）。**注意**：cron 实际调用 `workspace/keepalive.sh`，项目内此文件只是源副本，改后必须 `cp` 同步。
+- `backup_db.mjs` — SQLite 在线备份，用 `VACUUM INTO` 生成一致性快照（无需停服）。
+- `restore_db.mjs` — 从指定备份（或最新备份）恢复 `data/demo.db`。
+- `cf_setup.py` — Cloudflare Named Tunnel 自动配置。
+- `cf_set_ingress.py` — 为已存在的 Named Tunnel 配置 Public Hostname / ingress 规则。
+
+**提交防护**
+- `pre-commit-check.sh` — 提交前敏感信息拦截（`.env*` 变体、真实数据、编译产物、日志、`sk-` 形态密钥字面量）。安装：`cp tools/pre-commit-check.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`。
 
 **诊断（按需，不进 run_all）**
 - `scan_balance.py` / `trace_depth.py` — mock.js 括号配平与结构标记定位（排查生成产物时用）。
@@ -125,7 +141,7 @@ All modules use IIFE + `window.APP.*` namespace (not ES modules). Pages self-reg
 - `workbench.js` — 招商专员工作台 (KPIs, task list with filters, today's todos, activity feed)
 - `project.js` — 招商项目全生命周期 (funnel, card grid, 6-stage timeline, detail drawer)
 - `policy.js` — 政策服务 (category sidebar, search, card grid, detail with matched enterprises)
-- `aidemo.js` — AI 智能体 (4 agents, independent conversation contexts, pre-scripted replies)
+- `aidemo.js` — AI agents (4 agents, independent conversation contexts; chat goes through backend `POST /api/ai/chat` to a real LLM with tool-calling, `generateReply` serves only as fallback when the model is unavailable)
 
 **`assets/js/app.js`** — entry point: `render()`, `viewEnterprise()`, `goRisk()`, `handleDispatch()`, `goDispatch()`, one-click demo, global bindings (nav, fullscreen, district, clock, ESC).
 
