@@ -43,14 +43,29 @@
   function renderEnterprise() {
     var f = state.filter.enterprise;
 
-    // 筛选
+    // 筛选（风险等级支持多值，形如 'red,orange' 由驾驶舱「风险企业」卡片下钻带入）
+    var riskPicked = String(f.risk || '').split(',').filter(function (x) { return !!x; });
+    // 成立时间（新增企业）口径：month = 本月，year = 本年度
+    var nowY = new Date().getFullYear();
+    var nowM = new Date().getMonth() + 1;
+    function foundMatch(e, range) {
+      var s = String(e.found || '');
+      if (s.length < 7) return false;
+      var y = Number(s.slice(0, 4)), m = Number(s.slice(5, 7));
+      if (!y || !m) return false;
+      if (range === 'year') return y === nowY;
+      if (range === 'month') return y === nowY && m === nowM;
+      return true;
+    }
+
     var list = M.ENTERPRISES.filter(function (e) {
       if (f.keyword && e.name.indexOf(f.keyword) < 0 && e.creditCode.indexOf(f.keyword) < 0 && e.legal.indexOf(f.keyword) < 0) return false;
-      if (f.risk && e.riskLevel !== f.risk) return false;
+      if (riskPicked.length && riskPicked.indexOf(e.riskLevel) < 0) return false;
       if (f.industry && e.industry !== f.industry) return false;
       if (f.district && f.district !== 'all' && e.district !== f.district) return false;
       if (f.scale && e.scale !== f.scale) return false;
       if (f.tag && (e.tags || []).indexOf(f.tag) < 0) return false;
+      if (f.signRange && !foundMatch(e, f.signRange)) return false;
       return true;
     });
 
@@ -94,9 +109,16 @@
     var tagOpts = '<option value="">全部标签</option>' +
       allTags.map(function (t) { return '<option value="' + U.esc(t) + '"' + (f.tag === t ? ' selected' : '') + '>' + U.esc(t) + '</option>'; }).join('');
     var riskOpts = '<option value="">全部风险</option>' +
+      // 驾驶舱「风险企业」卡片下钻会带入 red,orange 多值，补一个可回显的选项
+      (riskPicked.length > 1
+        ? '<option value="' + riskPicked.join(',') + '" selected>重大 + 较高风险</option>'
+        : '') +
       [['red','重大风险'],['orange','较高风险'],['yellow','一般风险'],['blue','关注风险']].map(function (r) {
         return '<option value="' + r[0] + '"' + (f.risk === r[0] ? ' selected' : '') + '>' + r[1] + '</option>';
       }).join('');
+    var signRangeOpts = '<option value="">全部成立时间</option>' +
+      '<option value="month"' + (f.signRange === 'month' ? ' selected' : '') + '>本月新成立</option>' +
+      '<option value="year"' + (f.signRange === 'year' ? ' selected' : '') + '>本年新成立</option>';
 
     // 排序头
     function th(label, key, width, sortable, visible) {
@@ -189,8 +211,12 @@
     var selTaxWan = list.reduce(function(s,e){return s + e.overview.taxWan;},0);
     var selEmp = list.reduce(function(s,e){return s + e.overview.employees;},0);
     var selRisk = list.filter(function(e){return e.riskLevel==='red'||e.riskLevel==='orange'||e.riskLevel==='yellow';}).length;
-    var selKey = list.filter(function(e){return e.scale === '大型企业';}).length;
-    var selNew = list.filter(function(e){return e.signDaysAgo <= 30;}).length;
+    // 统计条口径与驾驶舱一致：重点企业按标签、近30天新签约按成立日期
+    var selKey = list.filter(function(e){return (e.tags||[]).indexOf('重点招商企业') >= 0;}).length;
+    var selNew = list.filter(function(e){
+      var s = String(e.found || '');
+      return s.length >= 7 && Number(s.slice(0,4)) === nowY && Number(s.slice(5,7)) === nowM;
+    }).length;
     var selPerf = list.length > 0 ? Math.round(list.reduce(function(s,e){return s + e.status.performRate;},0) / list.length) : 0;
     var selReveStr = selRevWan >= 10000 ? (selRevWan / 10000).toFixed(1) + '亿元' : selRevWan.toFixed(0) + '万元';
     var selTaxStr = selTaxWan >= 10000 ? (selTaxWan / 10000).toFixed(2) + '亿元' : selTaxWan.toFixed(0) + '万元';
@@ -213,9 +239,9 @@
         '<div class="os-divider"></div>' +
         osItem('风险企业', selRisk, '家', '#e03131') +
         '<div class="os-divider"></div>' +
-        osItem('大型企业', selKey, '家') +
+        osItem('重点招商企业', selKey, '家') +
         '<div class="os-divider"></div>' +
-        osItem('近30天新签约', selNew, '家', '#8B5CF6') +
+        osItem('近30天新成立', selNew, '家', '#8B5CF6') +
         '<div class="os-divider"></div>' +
         osItem('平均履约率', selPerf, '%', '#06B6D4') +
       '</div>';
@@ -257,6 +283,9 @@
             '<div class="filter-item"><label>企业标签</label>' +
               '<select class="f-select" id="fTag">' + tagOpts + '</select>' +
             '</div>' +
+            '<div class="filter-item"><label>成立时间</label>' +
+              '<select class="f-select" id="fSignRange">' + signRangeOpts + '</select>' +
+            '</div>' +
           '</div>' +
         '</div>' +
         '<div class="result-info" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
@@ -293,13 +322,13 @@
         }, 150);
       });
     }
-    // 下拉框：即时筛选
-    ['fRisk','fIndustry','fDistrict','fScale','fTag'].forEach(function (id) {
+    // 下拉框：即时筛选（显式 id → 字段映射，避免 fSignRange 被转成 signrange）
+    var selectFieldMap = { fRisk: 'risk', fIndustry: 'industry', fDistrict: 'district', fScale: 'scale', fTag: 'tag', fSignRange: 'signRange' };
+    Object.keys(selectFieldMap).forEach(function (id) {
       var el = U.$('#' + id);
       if (el) el.addEventListener('change', function () {
         kwState.active = false;
-        var key = id === 'fTag' ? 'tag' : id.substring(1).toLowerCase();
-        applyFilterField(key, this.value);
+        applyFilterField(selectFieldMap[id], this.value);
       });
     });
     // 标签点击快速筛选
@@ -350,7 +379,7 @@
     if (emptyBtn) {
       emptyBtn.addEventListener('click', function () {
         kwState.active = false;
-        f.keyword = ''; f.risk = ''; f.industry = ''; f.district = 'all'; f.scale = ''; f.tag = ''; f.page = 1;
+        f.keyword = ''; f.risk = ''; f.industry = ''; f.district = 'all'; f.scale = ''; f.tag = ''; f.signRange = ''; f.page = 1;
         APP.render();
       });
     }

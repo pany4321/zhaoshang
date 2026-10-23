@@ -247,7 +247,9 @@ export function mapEnterprise(e: RawEnterprise, cases: RawJudicialCase[] = []): 
   // 无产业归属（外省招商线索）时不查表，直接给默认标签
   const baseTag = (e.industryId && INDUSTRY_BASE_TAG[e.industryId]) || '重点招商企业'
   tags.push(baseTag)
-  if (e.scale === '大型企业') tags.push('重点招商企业')
+  // 「重点招商企业」以工商/招商台账的 isKey 标记为准。
+  // 原实现按「大型企业」推断，与真实标记不符（如 88 家样本里 大型企业 4 家、isKey 11 家）。
+  if (e.isKey && tags.indexOf('重点招商企业') < 0) tags.push('重点招商企业')
   if (r.bool(0.3)) tags.push('高新技术企业')
   if (r.bool(0.2)) tags.push('专精特新')
 
@@ -305,7 +307,15 @@ export function mapEnterprise(e: RawEnterprise, cases: RawJudicialCase[] = []): 
       ? e.district.name + (r.bool(0.5) ? '工业园区' : '产业园区') + (r.bool(0.5) ? ' A 座' : ' B 区')
       : '省外线索 · 待落地核实',
     isDeep: !!e.isKey,
-    signDaysAgo: r.int(1, 180),
+    // 签约/落地天数：按工商登记成立日期实时计算（原为随机数 1~180 天，与真实时间无关）
+    signDaysAgo: (() => {
+      const f = e.found ? new Date(String(e.found).replace(/-/g, '/')) : null
+      if (!f || isNaN(f.getTime())) return r.int(1, 180)
+      const diff = Math.floor((Date.now() - f.getTime()) / 86400000)
+      return diff >= 0 ? diff : 0
+    })(),
+    // 真实占地面积（亩）。驾驶舱「亩均税收」分母用它，缺失时才按投资额推导
+    landMu: e.landMu || 0,
     overview: {
       regCapital: regCapitalFmt,
       revenue: revenueFmt,

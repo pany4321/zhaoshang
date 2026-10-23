@@ -19,7 +19,7 @@
     project: null,         // 抽屉打开时的项目
     // 筛选态（按页面分组，避免互相污染）
     filter: {
-      enterprise: { keyword: '', risk: '', industry: '', district: '', scale: '', sort: 'riskDesc', page: 1 },
+      enterprise: { keyword: '', risk: '', industry: '', district: '', scale: '', tag: '', signRange: '', sort: 'riskDesc', page: 1 },
       risk: { keyword: '', level: '', type: '', status: '', district: '', page: 1, sort: 'timeDesc' },
       project: { keyword: '', stage: '', risk: '', owner: '', district: '', page: 1, view: 'card' },
       workbench: { keyword: '', status: '', priority: '', page: 1 },

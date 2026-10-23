@@ -3077,9 +3077,13 @@
     };
   })();
 
-  // —— 企业用地（亩）：由投资规模确定性推导（约 90 万元/亩），供亩均税收口径使用 ——
+  // —— 企业用地（亩）：真实工商/供地数据优先，缺失时才由投资规模推导（约 90 万元/亩） ——
+  //    web 版由 adapter 注入 server 的真实 landMu（88 家全有值），不得被推导值覆盖；
+  //    demo 纯前端企业无该字段，仍按投资额推导。
   ENTERPRISES.forEach(function (e) {
-    e.landMu = Math.max(15, Math.round(e.overview.investWan / 90));
+    if (!e.landMu || e.landMu <= 0) {
+      e.landMu = Math.max(15, Math.round(e.overview.investWan / 90));
+    }
   });
 
   // 产业链缺口

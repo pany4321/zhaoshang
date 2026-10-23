@@ -36,10 +36,30 @@
       ? M.ENTERPRISES
       : M.ENTERPRISES.filter(function (e) { return e.district === state.district; });
 
+    // ===== 新增企业口径（按工商登记成立日期，真实可核验）=====
+    // 原实现用 signDaysAgo（随机 1~180 天）判断「本月新增」、用 (id*37)%100<18 判断
+    // 「本年新增」，两者都与真实时间无关，且无法在企业清单里按同口径筛出来。
+    function foundParts(e) {
+      var s = String(e.found || '');
+      if (s.length < 7) return null;
+      var y = Number(s.slice(0, 4)), m = Number(s.slice(5, 7));
+      if (!y || !m) return null;
+      return { y: y, m: m };
+    }
+    var nowD = new Date();
+    function isNewInMonth(e) {
+      var p = foundParts(e);
+      return !!p && p.y === nowD.getFullYear() && p.m === nowD.getMonth() + 1;
+    }
+    function isNewInYear(e) {
+      var p = foundParts(e);
+      return !!p && p.y === nowD.getFullYear();
+    }
+
     // ===== 实时聚合 KPI =====
     var totalEnts = ents.length;
     var keyEnts = ents.filter(function(e){return e.tags && e.tags.indexOf('重点招商企业')>=0;}).length;
-    var newEnts = ents.filter(function(e){return e.signDaysAgo <= 30;}).length;
+    var newEnts = ents.filter(isNewInMonth).length;
     var revWan = ents.reduce(function(s,e){return s + e.overview.revenueWan;},0);
     var taxWan = ents.reduce(function(s,e){return s + e.overview.taxWan;},0);
     var invWan = ents.reduce(function(s,e){return s + e.overview.investWan;},0);
@@ -69,8 +89,9 @@
 
     function kpi(label, value, momKey, invert, riskClass, action) {
       var momVal = mom[momKey];
-      var cursor = action ? 'style="cursor:pointer;"' : '';
-      return '<div class="kpi ' + (riskClass || '') + '" data-kpi="' + momKey + '" ' + cursor + '>' +
+      // action 决定下钻时套用的筛选口径；无 action 的卡片（求和类）不提供下钻
+      var attrs = action ? ' data-action="' + action + '" style="cursor:pointer;" title="点击查看对应企业清单"' : '';
+      return '<div class="kpi ' + (riskClass || '') + '" data-kpi="' + momKey + '"' + attrs + '>' +
         '<div class="k-label">' + U.esc(label) + '</div>' +
         '<div class="k-value">' + U.esc(value) + '</div>' +
         momHtml(momVal, invert) +
@@ -90,18 +111,15 @@
     }, 0);
     var muTax = landMu > 0 ? taxWan / landMu : 0;
 
-    // 本年新增（年内招商签约口径，确定性推导且包含本月新增）
-    var newYearCnt = ents.filter(function (e) {
-      var idn = parseInt((e.id || '').replace(/\D/g, ''), 10) || 0;
-      return (idn * 37) % 100 < 18 || e.signDaysAgo <= 30;
-    }).length;
+    // 本年新增（按成立日期落在本年度，与企业清单同口径，可下钻核验）
+    var newYearCnt = ents.filter(isNewInYear).length;
 
     var kpiHtml =
-      // 第一行：规模与风险
-      kpi('企业总数', totalEnts.toLocaleString() + '家', 'totalEnterprises', false, '', 'enterprise') +
-      kpi('重点企业', keyEnts + '家', 'keyEnterprises', false, '', 'enterprise') +
-      kpi('本月新增', newEnts + '家', 'newEnterprises', false, '', 'enterprise') +
-      kpi('本年新增', newYearCnt + '家', 'newEnterprises', false, '', 'enterprise') +
+      // 第一行：规模与风险（均可下钻，下钻后筛选结果条数 = 卡片数字）
+      kpi('企业总数', totalEnts.toLocaleString() + '家', 'totalEnterprises', false, '', 'all') +
+      kpi('重点企业', keyEnts + '家', 'keyEnterprises', false, '', 'key') +
+      kpi('本月新增', newEnts + '家', 'newEnterprises', false, '', 'newMonth') +
+      kpi('本年新增', newYearCnt + '家', 'newEnterprises', false, '', 'newYear') +
       kpi('风险企业', riskEnts + '家', 'riskEnterprises', true, 'risk', 'risk') +
       // 第二行：经济贡献
       kpi('总营收', revenueStr, 'revenue') +
@@ -939,16 +957,29 @@
       });
     });
 
-    // KPI 点击下钻 → 企业档案
+    // KPI 点击下钻 → 企业概况
+    // 严格按该卡片自身的统计口径套筛选，保证「筛选结果条数 = 卡片数字」：
+    //   企业总数 → 不额外筛选（仅跟随当前辖区）
+    //   重点企业 → 企业标签 = 重点招商企业
+    //   本月新增 → 成立日期在本月
+    //   本年新增 → 成立日期在本年度
+    //   风险企业 → 风险等级 ∈ {重大, 较高}（red,orange 两档，不能只筛橙）
+    // 求和类指标（营收/固投/就业/纳税/亩均）没有对应行级筛选，不挂 data-action、不可点。
     U.$$('.kpi').forEach(function (k) {
+      var action = k.dataset.action;
+      if (!action) return;
       k.addEventListener('click', function () {
-        var key = k.dataset.kpi;
-        if (key === 'riskEnterprises') {
-          state.filter.enterprise.risk = 'orange';
-        } else {
-          state.filter.enterprise.risk = '';
-        }
-        state.filter.enterprise.district = state.district;
+        var f = state.filter.enterprise;
+        // 先清空企业概况全部筛选条件，避免叠加上一轮条件导致条数对不上
+        f.keyword = ''; f.risk = ''; f.industry = ''; f.scale = ''; f.tag = ''; f.signRange = '';
+        f.district = state.district;   // 跟随驾驶舱当前辖区口径
+        f.sort = 'riskDesc';
+        f.page = 1;
+        if (action === 'key') f.tag = '重点招商企业';
+        else if (action === 'newMonth') f.signRange = 'month';
+        else if (action === 'newYear') f.signRange = 'year';
+        else if (action === 'risk') f.risk = 'red,orange';
+        // action === 'all' 时不加任何条件
         state.page = 'enterprise';
         APP.render();
       });
@@ -978,7 +1009,11 @@
     var topEnt = ents.slice().sort(function(a,b){return b.overview.revenueWan-a.overview.revenueWan;})[0];
     var reds = ents.filter(function(e){return e.riskLevel==='red';}).length;
     var oranges = ents.filter(function(e){return e.riskLevel==='orange';}).length;
-    var newThisMonth = ents.filter(function(e){return e.signDaysAgo <= 30;}).length;
+    var nowM = new Date();
+    var newThisMonth = ents.filter(function(e){
+      var s = String(e.found || '');
+      return s.length >= 7 && Number(s.slice(0, 4)) === nowM.getFullYear() && Number(s.slice(5, 7)) === nowM.getMonth() + 1;
+    }).length;
     var avgPerform = Math.round(ents.reduce(function(s,e){return s + e.status.performRate;},0) / n);
     var topIndustry = Object.entries(
       ents.reduce(function(m,e){m[e.industryName]=(m[e.industryName]||0)+1;return m;}, {})
