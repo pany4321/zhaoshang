@@ -5,6 +5,61 @@
 
 ---
 
+## v5.1.9 — 2026-10-23 · demo 静态页接入真实企业数据集（与全栈版同源）
+
+### 背景
+
+demo 原型此前只有一套 `mock.js` 生成的 120 家虚构企业；全栈版（`server/` + `web/`）已切到
+`real-fixtures.json` 的 88 家真实工商数据。两套数据口径不同，同一场汇报里 demo 与线上页面
+数字对不上。本次让 demo 静态页也接入同一份真实数据源，同时保持「无后端、可直接打开」的特性。
+
+### 数据层（真实数据优先，缺失项沿用确定性模拟）
+
+| 层 | 来源 | 处理 |
+|---|---|---|
+| 企业身份 | 工商登记（名称 / 信用代码 / 法人 / 成立日期 / 注册资本 / 划区 / 国标行业） | **真实**，逐条可核验 |
+| 企业财务 | 工商年报公示（营收 / 纳税 / 资产总额 / 净利润，88/88 有值） | **真实** |
+| 股东 / 司法 / 知产 / 招投标 | 数据仓库明细（197 条股东、108 件司法案件等） | **真实** |
+| 风险八维分值 / 等级 | 规则计算 | 确定性推导（与全栈版同算法） |
+| 项目节点 / 任务 / 政策匹配 / 环比 | 无正式数据源 | 固定种子生成，**每次装载结果一致** |
+| 今日待办 / 本周新增的任务日期 | 演示日期滚动 | 2 条截止日 + 3 条创建日滚到当天（等价后端 `TODAY:` 机制），其余日期固定 |
+
+### 新增文件 / 改动
+
+- `tools/gen_demo_real_data.mjs`（新）—— 用 esbuild 现编 `web/src/engine/adapter.ts`，在 Node 沙箱加载
+  `demo/assets/data/mock.js` 提供 `window.MOCK`，跑与线上完全相同的 `mapBootstrap()`，输出
+  `demo/assets/data/real-data.js`（464KB）。**数据源、映射、派生算法三者与全栈版同一份代码**，不存在二次实现。
+- `demo/assets/data/real-data.js`（生成物，**已 gitignore**）—— `window.MOCK_REAL` + 装载逻辑；
+  含真实企业名称/信用代码/财务，不得提交、不得随 Pages 发布。
+- `demo/index.html` —— 在 `mock.js` 之后引入 `real-data.js`；文件缺失时静默跳过，回落内置 120 家模拟数据。
+- `demo/assets/data/mock.js` —— `MOCK_ENGINE.rebuild()` 补 `replaceInPlace`（原地替换闭包数组）。
+  此前只有 `web/public/engine/mock.js`（生成物）里有这个修复，demo 源文件缺，导致 rebuild 后
+  `entById()` 仍指向旧数组 —— 真实数据下企业详情/画像页会查不到企业。
+- `tools/verify_demo_data_source.mjs`（新）—— 四组断言：真实装载（88 家 / 91.75 亿营收 / 明细数对齐后端）、
+  确定性（两次独立装载 21KB 快照逐字节相同）、兜底回落（无 real-data.js → 120 家、无异常）、
+  9 个页面渲染。
+- `.gitignore` —— 追加 `demo/assets/data/real-data.js`。
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| `node tools/gen_demo_real_data.mjs` | 88 企业 / 67 事件 / 19 项目 / 78 任务 / 24 政策；营收 91.75 亿；今日待办 2 / 本周新增 5 |
+| `node tools/verify_demo_data_source.mjs` | 24 项断言全通过（含 9 页渲染） |
+| `npm run sync` / `npm run fixtures` | 通过；`demo-fixtures.json` md5 **未变**（证明真实数据集未污染 mock→fixtures 导出链路） |
+| `npm test` | 全部通过（11 个脚本，含接口回归 server=88 / fixtures=88） |
+| `npm run build:web` | exit 0；首屏体积未变（`engine/mock.js` 181.3KB，web 端不加载 real-data.js） |
+
+### 已知边界
+
+- **demo 与线上「今日待办」不一致**：demo 端靠 `real-data.js` 的日期滚动保证不空；后端
+  `real-fixtures.json` 里没有 `TODAY:` 前缀任务，因此**分层版工作台「今日待办 / 本周新增」目前为 0**。
+  修法是在 `tools/gen_real_fixtures.py` 里补 2 条标记 + 幂等补插（不动全量 seed），待确认后执行。
+- `OVERVIEW.keyEnterprises` 仍按 `scale === '大型企业'` 算（4 家），而驾驶舱卡片按 tags 算（11 家）。
+  该字段页面未使用，本次未动以免触发跨端重算。
+
+---
+
 ## v5.1.8 — 2026-10-23 · 新增签约卡片接入招商项目台账（本月/本年）
 
 ### 背景

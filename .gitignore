@@ -42,6 +42,8 @@ web/.env.*
 
 # 真实企业数据（来源：工商/信用数据源，含企业名称、法人、统一社会信用代码）
 server/prisma/real-fixtures.json
+# demo 静态页真实数据集（由 real-fixtures 映射生成，同样含真实企业名称/信用代码/财务）
+demo/assets/data/real-data.js
 # 固定样本快照含真实工商数据（企业名/信用代码/财务），仅本地保存，禁止入库
 server/prisma/snapshots/
 data-import/

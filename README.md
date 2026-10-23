@@ -8,7 +8,7 @@
 
 本仓库包含平台的**两种交付形态**，共享同一套视觉设计与功能定义：
 
-- **纯前端高保真原型（`demo/`）**——原版、风格与功能的唯一基准。无后端、无构建、无网络请求，数据全部由 `mock.js` 在浏览器内确定性生成，可直接打开运行，适合演示、评审与原型验证。
+- **纯前端高保真原型（`demo/`）**——原版、风格与功能的唯一基准。无后端、无构建、无网络请求，数据由 `mock.js` 在浏览器内确定性生成，可直接打开运行，适合演示、评审与原型验证。**可选接入真实企业数据集**（`demo/assets/data/real-data.js`，与全栈版同源）——存在即自动装载，缺失则回落内置模拟数据（见 1.2）。
 - **前后端分离部署演示版（`server/` + `web/`）**——在原型基础上叠加真实鉴权、后端 API、数据库持久化与工作流闭环。前端直接复用 `demo/` 的页面渲染引擎（`web/public/engine/`），保证视觉与交互 1:1 一致。适合在此基础上进一步开发可交付客户验收的真实系统。
 
 ---
@@ -57,8 +57,11 @@ demo/
 
 原型**不依赖任何后端**，全部逻辑在浏览器内完成：
 
-- **唯一数据源**：`mock.js` 以 IIFE 挂载到 `window.MOCK`（Node 环境退化为 `global.MOCK`）。页面渲染器从 `MOCK` 读取数据，不发起任何 `fetch` / XHR。
-- **固定种子可重现**：`SEED = 20260822` + `mulberry32` 伪随机，每次打开数据完全一致（确定性），便于演示与复现。
+- **数据源（两级）**：`mock.js` 以 IIFE 挂载到 `window.MOCK`（Node 环境退化为 `global.MOCK`）。页面渲染器从 `MOCK` 读取数据，不发起任何 `fetch` / XHR。
+  - **真实数据集（可选，优先）**：`demo/assets/data/real-data.js` 存在时，脚本在 `mock.js` 之后自动调用 `MOCK_ENGINE.rebuild()` 用真实企业数据重建全部派生结构。该文件由 `node tools/gen_demo_real_data.mjs` 生成，数据源与全栈版**完全同源**（`server/prisma/real-fixtures.json` → `web/src/engine/adapter.ts` 同一份 `mapBootstrap` 映射 → 同一套 `rebuild` 算法），因此 demo 与线上页面数字逐项一致（88 家企业 / 真实工商 + 年报财务）。
+  - **内置模拟数据（兜底）**：`real-data.js` 缺失（如 GitHub Pages 公开演示、CI 环境）时自动回落 `mock.js` 生成的 120 家企业，页面不报错。
+  - ⚠️ `real-data.js` 含真实企业名称 / 统一社会信用代码 / 财务数据，**已写入 `.gitignore`，不得提交**；删除该文件即回滚到纯模拟数据。
+- **固定种子可重现**：`SEED = 20260822` + `mulberry32` 伪随机，每次打开数据完全一致（确定性），便于演示与复现。真实数据集模式同样确定：`rebuild` 用字符串种子 `zs-rebuild-v1`，同一份数据两次装载结果逐字节相同（仅「今日待办 / 本周新增」等少量任务日期按本地时区滚动到当天，与后端 `TODAY:` 机制等价，其余日期固定）。
 - **派生引擎**：`MOCK_ENGINE.enrich / deriveAll / rebuild(raw)` 在加载时一次性计算聚合、图谱、AI 日报、政策兑现等派生结构；前后端分离版复用同一引擎做「服务器数据 → MOCK 形状」的 rebuild。
 - **视觉 1:1**：设计系统、DOM 结构、组件（Toast / 抽屉 / 确认框 / 分页 / 骨架屏）、图表配置全部内置，零外部依赖。
 - **登录门禁**：`login.js` 以 `admin / admin123` 校验（与后端 `/auth/login` 一致），登录态写入 `localStorage('zs_token' / 'zs_user')`，刷新不丢失；仅作演示门禁，无真实权限隔离。
@@ -123,16 +126,18 @@ python3 -m http.server 8080    # 或：npx serve .
 
 ### 1.6 📊 数据模型
 
-核心实体均来自 `mock.js`，由固定种子确定性生成：
+核心实体由 `mock.js` 固定种子确定性生成（内置模式），或由 `real-data.js` 从后端同源真实数据集重建（真实模式）：
 
-| 实体 | 说明 | 模拟数据量 |
-| ------ | ------ | ----------- |
-| `Enterprise` 企业 | overview / status / operation / commitments / dynamics / risks / riskScore / riskLevel / shareholders / policies / ai / landMu | 120 家（15 深度建档 + 105 轻量） |
-| `RiskEvent` 风险事件 | 三态：待处置 / 已派发 / 已关闭（9 / 31 / 27） | 67 条 |
-| `Task` 任务 | 与风险事件联动（待处置→已派发→已关闭）+ 常规任务 | 80 条 |
-| `Policy` 政策 | 层级 / 类型 / 部门 / 兑现计划（`POLICY_REDEEM`） | 24 条 |
-| `Project` 招商项目 | 6 阶段推进 | 19 个 |
-| `Graph` 关系图谱 | 关系网络节点 / 边 | 46 节点 / 117 边 |
+| 实体 | 说明 | 内置模拟（默认） | 真实数据集模式 |
+| ------ | ------ | ----------- | ------- |
+| `Enterprise` 企业 | name / creditCode / legal / found / regCapital / overview（真实年报财务）/ risks / riskScore / shareholders / policies / ai / landMu | 120 家（15 深度建档 + 105 轻量） | **88 家**（真实工商登记 + 年报公示财务，其中 197 条股东、108 件司法案件） |
+| `RiskEvent` 风险事件 | 三态：待处置 / 已派发 / 已关闭 | 61 条 | 67 条 |
+| `Task` 任务 | 与风险事件联动 + 常规任务 | 75 条 | 78 条 |
+| `Policy` 政策 | 层级 / 类型 / 部门 / 兑现计划（`POLICY_REDEEM`） | 24 条 | 24 条 |
+| `Project` 招商项目 | 6 阶段推进 | 19 个 | 19 个 |
+| `Graph` 关系图谱 | 关系网络节点 / 边 | 由企业明细推导 | 由企业明细推导（真实企业名 + 真实股东） |
+
+> 真实数据集模式下：**企业身份字段（名称 / 信用代码 / 法人 / 成立日期 / 注册资本 / 区划 / 国标行业）与年报财务（营收 / 纳税 / 资产 / 净利润）全部为真实数据**；风险分、项目节点、任务、政策匹配等派生结构由确定性规则与同一套 `rebuild` 算法生成。逐层口径见 `docs/数据口径说明.md`。
 
 - **风险八维加权模型**（`RISK_DIMS`：operation 0.20 / finance 0.15 / judicial 0.15 / credit 0.15 / tender 0.10 / tax 0.10 / perform 0.10 / ip 0.05，合计 = 1）与等级阈值（红 ≥65 / 橙 ≥45 / 黄 ≥25 / 蓝）在 `mock.js` 固化。
 - **派生量**：综合风险指数 = Σ(weight × risks[dim])；到位资金 = 协议额 × 进度；兑现率来自 `POLICY_REDEEM`。
@@ -149,6 +154,11 @@ npx serve demo
 
 # 校验数据不变式（风险三态 ↔ 任务映射一致性；Node 环境，加载 mock.js）
 node tools/check_invariants.js
+
+# 生成/更新 demo 真实数据集（与全栈版同源；改动 real-fixtures 或 adapter 后重跑）
+node tools/gen_demo_real_data.mjs
+# 校验 demo 数据源（真实装载 / 确定性 / 兜底回落 / 9 页渲染）
+node tools/verify_demo_data_source.mjs
 ```
 
 > 重新生成全栈版引擎 mock.js（demo 变更后）：`python tools/build_engine_mock.py`

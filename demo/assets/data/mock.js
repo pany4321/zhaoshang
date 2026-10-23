@@ -3342,11 +3342,26 @@
     deriveAll: deriveAll,
     rebuild: function (raw) {
       raw = raw || {};
-      var E = raw.ENTERPRISES || ENTERPRISES;
-      var EV = raw.RISK_EVENTS || RISK_EVENTS;
-      var PJ = raw.PROJECTS || PROJECTS;
-      var TK = raw.TASKS || TASKS;
-      var PL = raw.POLICY_LIB || POLICY_LIB;
+      // 原地替换闭包数组：entById 等内部函数捕获的是闭包变量，
+      // 仅给 global.MOCK 换引用会使两份数据分叉（企业 policies 与政策库
+      // 名称错位 → 画像页政策匹配失败、无法下钻政策详情）。
+      // 与 web/public/engine/mock.js 的 rebuild 行为保持一致。
+      function replaceInPlace(arr, next) {
+        if (!next) return arr;
+        arr.length = 0;
+        for (var i = 0; i < next.length; i++) arr.push(next[i]);
+        return arr;
+      }
+      replaceInPlace(ENTERPRISES, raw.ENTERPRISES);
+      replaceInPlace(RISK_EVENTS, raw.RISK_EVENTS);
+      replaceInPlace(PROJECTS, raw.PROJECTS);
+      replaceInPlace(TASKS, raw.TASKS);
+      replaceInPlace(POLICY_LIB, raw.POLICY_LIB);
+      var E = ENTERPRISES;
+      var EV = RISK_EVENTS;
+      var PJ = PROJECTS;
+      var TK = TASKS;
+      var PL = POLICY_LIB;
       // 服务端下发的自定义风险权重：先更新维度权重再 enrich/deriveAll
       if (Array.isArray(raw.riskWeights) && raw.riskWeights.length) {
         raw.riskWeights.forEach(function (nw) {

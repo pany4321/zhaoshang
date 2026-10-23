@@ -37,6 +37,7 @@ const SUITE = [
   ['verify_profile_responsive.cjs', '画像页响应式', true],
   ['verify_policy_jump.cjs', '画像→政策跳转链路', true],
   ['verify_ai_lead_admission.js', 'AI 推荐纳入字段真实性（区县/注册资本/产业）', true],
+  ['verify_demo_data_source.mjs', 'demo 数据源（真实装载/确定性/兜底回落/9 页渲染）', true],
 ];
 
 // 需要运行中的 server 的脚本（server 未启动时 SKIP，不计失败）
