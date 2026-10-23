@@ -36,30 +36,26 @@
       ? M.ENTERPRISES
       : M.ENTERPRISES.filter(function (e) { return e.district === state.district; });
 
-    // ===== 新增企业口径（按工商登记成立日期，真实可核验）=====
-    // 原实现用 signDaysAgo（随机 1~180 天）判断「本月新增」、用 (id*37)%100<18 判断
-    // 「本年新增」，两者都与真实时间无关，且无法在企业清单里按同口径筛出来。
-    function foundParts(e) {
-      var s = String(e.found || '');
-      if (s.length < 7) return null;
-      var y = Number(s.slice(0, 4)), m = Number(s.slice(5, 7));
-      if (!y || !m) return null;
-      return { y: y, m: m };
-    }
+    // ===== 新增签约口径（招商项目台账）=====
+    // 「本月新增签约 / 本年新增签约」统计的是**招商项目**，不是工商新设企业。
+    // 取 Project.signDate（签约落地时间），仅 stage>=2（签约落地及以后）的项目有值。
+    // 与企业概况页 signRange 筛选用同一字段、同一判定，保证「卡片数字 = 下钻条数」。
+    // signDate 属 B 类推算口径（线索对接日 + 洽谈周期确定性推导），见 docs/数据口径说明.md。
     var nowD = new Date();
-    function isNewInMonth(e) {
-      var p = foundParts(e);
-      return !!p && p.y === nowD.getFullYear() && p.m === nowD.getMonth() + 1;
-    }
-    function isNewInYear(e) {
-      var p = foundParts(e);
-      return !!p && p.y === nowD.getFullYear();
-    }
+    var ymPrefix = nowD.getFullYear() + '-' + (nowD.getMonth() < 9 ? '0' : '') + (nowD.getMonth() + 1);
+    var yearPrefix = nowD.getFullYear() + '-';
+    var signedProjs = (M.PROJECTS || []).filter(function (p) {
+      if (!p.signDate) return false;
+      if (state.district === 'all') return true;
+      return p.district === state.district;
+    });
+    var newMonthCnt = signedProjs.filter(function (p) {
+      return String(p.signDate).indexOf(ymPrefix) === 0;
+    }).length;
 
     // ===== 实时聚合 KPI =====
     var totalEnts = ents.length;
     var keyEnts = ents.filter(function(e){return e.tags && e.tags.indexOf('重点招商企业')>=0;}).length;
-    var newEnts = ents.filter(isNewInMonth).length;
     var revWan = ents.reduce(function(s,e){return s + e.overview.revenueWan;},0);
     var taxWan = ents.reduce(function(s,e){return s + e.overview.taxWan;},0);
     var invWan = ents.reduce(function(s,e){return s + e.overview.investWan;},0);
@@ -91,10 +87,13 @@
       var momVal = mom[momKey];
       // action 决定下钻时套用的筛选口径；无 action 的卡片（求和类）不提供下钻
       var attrs = action ? ' data-action="' + action + '" style="cursor:pointer;" title="点击查看对应企业清单"' : '';
+      // 环比只在有真实历史值时展示：签约类卡片没有历史签约基线，mom 里取不到值就不显示，
+      // 避免用企业口径的环比数字冒充签约环比（数值必须可核验）
+      var momBlock = typeof momVal === 'number' ? momHtml(momVal, invert) : '';
       return '<div class="kpi ' + (riskClass || '') + '" data-kpi="' + momKey + '"' + attrs + '>' +
         '<div class="k-label">' + U.esc(label) + '</div>' +
         '<div class="k-value">' + U.esc(value) + '</div>' +
-        momHtml(momVal, invert) +
+        momBlock +
         '</div>';
     }
 
@@ -111,15 +110,17 @@
     }, 0);
     var muTax = landMu > 0 ? taxWan / landMu : 0;
 
-    // 本年新增（按成立日期落在本年度，与企业清单同口径，可下钻核验）
-    var newYearCnt = ents.filter(isNewInYear).length;
+    // 本年新增签约（signDate 落在本年度，与企业清单同口径，可下钻核验）
+    var newYearCnt = signedProjs.filter(function (p) {
+      return String(p.signDate).indexOf(yearPrefix) === 0;
+    }).length;
 
     var kpiHtml =
       // 第一行：规模与风险（均可下钻，下钻后筛选结果条数 = 卡片数字）
       kpi('企业总数', totalEnts.toLocaleString() + '家', 'totalEnterprises', false, '', 'all') +
       kpi('重点企业', keyEnts + '家', 'keyEnterprises', false, '', 'key') +
-      kpi('本月新增', newEnts + '家', 'newEnterprises', false, '', 'newMonth') +
-      kpi('本年新增', newYearCnt + '家', 'newEnterprises', false, '', 'newYear') +
+      kpi('本月新增签约', newMonthCnt + '个', 'signNewEnterprises', false, '', 'newMonth') +
+      kpi('本年新增签约', newYearCnt + '个', 'signNewEnterprises', false, '', 'newYear') +
       kpi('风险企业', riskEnts + '家', 'riskEnterprises', true, 'risk', 'risk') +
       // 第二行：经济贡献
       kpi('总营收', revenueStr, 'revenue') +
@@ -316,7 +317,7 @@
     }).join('');
 
     // AI 今日摘要（基于当前区县数据生成）
-    var aiItems = buildAiSummary(ents, districtLabel);
+    var aiItems = buildAiSummary(ents, districtLabel, newMonthCnt);
     aiItems.push('招商推进：在库项目 ' + projects.length + ' 个，已签约 ' + (projects.length - pipelineCnt) +
       ' 个、协议投资 ' + (agreedWan / 10000).toFixed(1) + ' 亿元，年度目标完成 ' + agreeRate + '%。');
     var aiHtml = aiItems.map(function (t, i) {
@@ -916,8 +917,8 @@
           ['统计口径', districtLabel, '全市=庆阳市全部口径；区县=该县区视角'],
           ['企业总数', totalEnts, '家'],
           ['重点招商企业', keyEnts, '家 · 含重点招商企业标签'],
-          ['本月新增企业', newEnts, '家 · 签约/落地 ≤30 天'],
-          ['本年度新增企业', newYearCnt, '家 · 年内招商签约口径'],
+          ['本月新增签约', newMonthCnt, '个 · 签约落地日期在本月（招商项目台账口径）'],
+          ['本年度新增签约', newYearCnt, '个 · 签约落地日期在本年度'],
           ['风险企业（红/橙）', riskEnts, '家 · 综合风险指数为重大/较高'],
           ['总营收', revenueStr, '由企业库实时聚合'],
           ['纳税总额', taxStr, '由企业库实时聚合'],
@@ -961,8 +962,8 @@
     // 严格按该卡片自身的统计口径套筛选，保证「筛选结果条数 = 卡片数字」：
     //   企业总数 → 不额外筛选（仅跟随当前辖区）
     //   重点企业 → 企业标签 = 重点招商企业
-    //   本月新增 → 成立日期在本月
-    //   本年新增 → 成立日期在本年度
+    //   本月新增签约 → 签约落地日期在本月（signRange=month）
+    //   本年新增签约 → 签约落地日期在本年度（signRange=year）
     //   风险企业 → 风险等级 ∈ {重大, 较高}（red,orange 两档，不能只筛橙）
     // 求和类指标（营收/固投/就业/纳税/亩均）没有对应行级筛选，不挂 data-action、不可点。
     U.$$('.kpi').forEach(function (k) {
@@ -1003,17 +1004,14 @@
   }
 
   // 生成 AI 今日摘要
-  function buildAiSummary(ents, label) {
+  function buildAiSummary(ents, label, signMonthCnt) {
     var n = ents.length;
     if (n === 0) return ['当前选区暂无企业数据。'];
     var topEnt = ents.slice().sort(function(a,b){return b.overview.revenueWan-a.overview.revenueWan;})[0];
     var reds = ents.filter(function(e){return e.riskLevel==='red';}).length;
     var oranges = ents.filter(function(e){return e.riskLevel==='orange';}).length;
     var nowM = new Date();
-    var newThisMonth = ents.filter(function(e){
-      var s = String(e.found || '');
-      return s.length >= 7 && Number(s.slice(0, 4)) === nowM.getFullYear() && Number(s.slice(5, 7)) === nowM.getMonth() + 1;
-    }).length;
+    var newThisMonth = signMonthCnt || 0;
     var avgPerform = Math.round(ents.reduce(function(s,e){return s + e.status.performRate;},0) / n);
     var topIndustry = Object.entries(
       ents.reduce(function(m,e){m[e.industryName]=(m[e.industryName]||0)+1;return m;}, {})
@@ -1021,7 +1019,7 @@
     var keyCount = ents.filter(function(e){return e.tags && e.tags.indexOf('重点招商企业')>=0;}).length;
 
     return [
-      label + '共有企业 ' + n + ' 家，其中重点招商企业 ' + keyCount + ' 家，本月新增 ' + newThisMonth + ' 家，整体运行平稳。',
+      label + '共有企业 ' + n + ' 家，其中重点招商企业 ' + keyCount + ' 家，本月新增签约 ' + newThisMonth + ' 个，整体运行平稳。',
       '营收龙头：' + topEnt.name + '（' + topEnt.overview.revenue + '），' + (topIndustry?topIndustry[0]:'-') + '产业占比最高。',
       '风险预警：重大风险 ' + reds + ' 家、较高风险 ' + oranges + ' 家，风险总体可控，建议重点关注红橙级企业。',
       '招商履约：平均履约率 ' + avgPerform + '%，多数企业按计划推进投资建设。',

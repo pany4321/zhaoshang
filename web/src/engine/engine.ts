@@ -83,7 +83,7 @@ export const PAGE_KEYS = [
 // 引擎脚本版本号：每次改动 demo/web 前端引擎后递增，
 // 用于给脚本 URL 加 ?v=xxx 强制浏览器与 CDN 重新取（Cloudflare 的
 // Browser Cache TTL 会覆盖源站 Cache-Control，改头无效，只能改 URL）
-const ENGINE_VER = '20261023b'
+const ENGINE_VER = '20261023d'
 
 function withVer(src: string): string {
   return src + (src.indexOf('?') >= 0 ? '&' : '?') + 'v=' + ENGINE_VER

@@ -14,7 +14,7 @@
 """
 import csv, json, hashlib, math, os
 from collections import Counter
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSV_PATH = os.path.join(BASE, 'data-import/enterprises.csv')
@@ -687,6 +687,46 @@ def main():
             'stage4Detail': None, 'stage5Detail': None, 'stage6Detail': None,
             'lastContact': f'2026-{9 + dh(ent["creditCode"], "lc") % 2:02d}-{1 + dh(ent["creditCode"], "lcd") % 27:02d}',
         })
+
+    # ---------- 签约落地时间（B 方案：按项目阶段推算的演示口径）----------
+    # 口径说明（务必与 docs/数据口径说明.md、CHANGELOG 保持一致）：
+    #   · 仅 stage>=2（签约落地及以后阶段）的项目有签约时间；线索/洽谈阶段为 None
+    #   · 以「今天」为锚：已签约项目中区县互不相同的 3 个落到当月，
+    #     保证「本月新增签约」在任意演示月份都非零，且分散在 3 个区县
+    #   · 其余已签约项目 = 线索对接日 + 30~60 天（按 enterpriseId 确定性哈希），
+    #     若会漂入当月则回落到当月之前，保证「本月」恰好等于上面那 3 个
+    #   · 该字段为推算值（B 类），不是工商/税务事实，界面与文档均按此界定
+    signed = [p for p in projects if p['stage'] >= 2]
+    seen_dist, month_ids = set(), set()
+    for p in signed:
+        if len(month_ids) >= 3:
+            break
+        if p['districtId'] in seen_dist:
+            continue
+        seen_dist.add(p['districtId'])
+        month_ids.add(p['id'])
+    first_of_month = date(TODAY.year, TODAY.month, 1)
+    for p in projects:
+        if p['stage'] < 2:
+            p['signDate'] = None
+            continue
+        sd = datetime.strptime(p['startDate'], '%Y-%m-%d').date()
+        if p['id'] in month_ids:
+            d = first_of_month + timedelta(days=dh(p['enterpriseId'], 'sgm') % 25)
+            lb = sd + timedelta(days=20)
+            if d < lb:
+                d = lb
+            if d > TODAY:
+                d = TODAY
+        else:
+            d = sd + timedelta(days=30 + dh(p['enterpriseId'], 'sg') % 31)
+            if d >= first_of_month:
+                d = first_of_month - timedelta(days=1 + dh(p['enterpriseId'], 'sg2') % 10)
+        if d < sd:
+            d = sd
+        if d > TODAY:
+            d = TODAY
+        p['signDate'] = d.strftime('%Y-%m-%d')
 
     # ---------- 任务 78 条 ----------
     TASK_PLAN = (['risk'] * 58) + (['policy'] * 8) + (['service'] * 5) + (['project'] * 4) + (['patrol'] * 3)

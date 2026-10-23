@@ -39,6 +39,7 @@ export interface RawProject {
   id: string; name: string; enterpriseId: string; stage: number; stageName: string;
   progress: number; investment: number; districtId: string | null; industryId: string | null;
   org: string; contact: string | null; riskLevel: string; riskScore: number; startDate: string;
+  signDate?: string | null; // 签约落地时间（B 类推算口径，仅 stage>=2 有值）
   stage1Detail: string | null; stage2Detail: string | null; stage3Detail: string | null;
   stage4Detail: string | null; stage5Detail: string | null; stage6Detail: string | null;
   lastContact: string | null;
@@ -434,11 +435,12 @@ export function mapProject(p: RawProject): any {
   const stageNotesSrc = [p.stage1Detail, p.stage2Detail, p.stage3Detail, p.stage4Detail, p.stage5Detail, p.stage6Detail]
 
   // 时间线：已到达阶段回溯、未来阶段计划
+  // 「签约落地」节点若服务端下发了 signDate，则用台账日期覆盖推算日期（口径一致，可核验）
   const timeline: { date: string; stage: string; note: string }[] = []
   for (let si = 0; si <= stage; si++) {
     const back = (stage - si) * 30 + r.int(5, 15)
     timeline.push({
-      date: fmtDate(daysAgoDate(back)),
+      date: STAGE_NAMES[si] === '签约落地' && p.signDate ? p.signDate : fmtDate(daysAgoDate(back)),
       stage: STAGE_NAMES[si],
       note: stageNotesSrc[si] || (ent?.name || p.name) + '项目' + STAGE_NAMES[si] + '阶段',
     })
@@ -490,6 +492,7 @@ export function mapProject(p: RawProject): any {
     owner: p.org || '招商一组',
     contact: p.contact || '招商专班 139****0000',
     progress: p.progress,
+    signDate: p.signDate || null,
     risk: p.riskLevel === 'red' ? '重大风险' : p.riskLevel === 'orange' ? '关注' : '正常',
     riskLevel: p.riskLevel,
     district: p.districtId || '',
@@ -560,6 +563,18 @@ export function mapBootstrap(raw: BootstrapData) {
   const events = (raw.riskEvents || []).map(mapRiskEvent)
   events.sort((a, b) => (a.time < b.time ? 1 : -1))
   const projects = (raw.projects || []).map(mapProject)
+
+  // 企业维度回填签约日期：企业概况页「本月/本年新签约」筛选需要按企业行过滤。
+  // Project.enterpriseId 在 schema 中是 @unique（一企业一项目），故可直接按企业回填，
+  // 保证「驾驶舱卡片数字 = 下钻后企业条数」。
+  const signByEnt = new Map<string, string>()
+  for (const rp of raw.projects || []) {
+    if (rp.enterpriseId && rp.signDate) signByEnt.set(rp.enterpriseId, rp.signDate)
+  }
+  for (const e of enterprises) {
+    const sd = signByEnt.get((e as any).id)
+    if (sd) (e as any).signDate = sd
+  }
   const policies = (raw.policies || []).map(mapPolicy)
 
   const tasks = (raw.tasks || []).map(mapTask)

@@ -257,6 +257,7 @@ model Project {
   riskLevel    String     // red / orange / yellow / blue
   riskScore    Int        @default(0)
   startDate    String     // 线索对接日期
+  signDate     String?    // 签约落地时间（B 类推算口径：stage>=2 才有值，见 docs/数据口径说明.md）
 
   // 六阶段进展（JSON 字符串存）
   stage1Detail String? // 线索对接

@@ -45,11 +45,14 @@
 
     // 筛选（风险等级支持多值，形如 'red,orange' 由驾驶舱「风险企业」卡片下钻带入）
     var riskPicked = String(f.risk || '').split(',').filter(function (x) { return !!x; });
-    // 成立时间（新增企业）口径：month = 本月，year = 本年度
+    // 签约时间（新增签约）口径：month = 本月签约，year = 本年度签约
+    // 数据源 = 该企业对应的招商项目 Project.signDate（由 adapter 回填到企业行），
+    // 与驾驶舱「本月/本年新增签约」卡片同字段同判定，保证条数 = 卡片数字。
+    // 未签约（无 signDate）的企业在 month/year 筛选下均不出现。
     var nowY = new Date().getFullYear();
     var nowM = new Date().getMonth() + 1;
     function foundMatch(e, range) {
-      var s = String(e.found || '');
+      var s = String(e.signDate || '');
       if (s.length < 7) return false;
       var y = Number(s.slice(0, 4)), m = Number(s.slice(5, 7));
       if (!y || !m) return false;
@@ -116,9 +119,9 @@
       [['red','重大风险'],['orange','较高风险'],['yellow','一般风险'],['blue','关注风险']].map(function (r) {
         return '<option value="' + r[0] + '"' + (f.risk === r[0] ? ' selected' : '') + '>' + r[1] + '</option>';
       }).join('');
-    var signRangeOpts = '<option value="">全部成立时间</option>' +
-      '<option value="month"' + (f.signRange === 'month' ? ' selected' : '') + '>本月新成立</option>' +
-      '<option value="year"' + (f.signRange === 'year' ? ' selected' : '') + '>本年新成立</option>';
+    var signRangeOpts = '<option value="">全部签约时间</option>' +
+      '<option value="month"' + (f.signRange === 'month' ? ' selected' : '') + '>本月新签约</option>' +
+      '<option value="year"' + (f.signRange === 'year' ? ' selected' : '') + '>本年新签约</option>';
 
     // 排序头
     function th(label, key, width, sortable, visible) {
@@ -283,7 +286,7 @@
             '<div class="filter-item"><label>企业标签</label>' +
               '<select class="f-select" id="fTag">' + tagOpts + '</select>' +
             '</div>' +
-            '<div class="filter-item"><label>成立时间</label>' +
+            '<div class="filter-item"><label>签约时间</label>' +
               '<select class="f-select" id="fSignRange">' + signRangeOpts + '</select>' +
             '</div>' +
           '</div>' +
