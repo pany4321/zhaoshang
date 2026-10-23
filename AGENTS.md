@@ -12,7 +12,7 @@
 - `web/` — 前端（Vue 3 + Vite + Pinia 壳；构建经 manualChunks 分包 echarts/vue），在 `web/public/engine/` **vendor 了 demo 引擎**（与 `demo/` 相同的 style.css、页面渲染器、components），并回放服务器数据。**不要用 Vue 重写页面——扩展引擎**。
 - `README.md` — V5 全栈版快速上手指南。
 
-V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /api/bootstrap` 一次性下发全部实体，`web/src/engine/adapter.ts` 映射为 demo MOCK 形状，`MOCK_ENGINE.rebuild()`（`web/public/engine/mock.js`）重算全部派生结构（聚合、图谱、AI 日报、政策兑现），保证页页数字对账。**服务器数据由 fixtures 驱动**：`tools/export_demo_fixtures.cjs` 将 demo MOCK 实体导出为 `server/prisma/demo-fixtures.json`（demo 口径：120 企业 / **61 风险事件 / 75 任务** / 24 政策 / 19 项目）。注意 `seed-data.ts` **优先读 `real-fixtures.json`**（真实工商数据，存在时即用它；其为 88 企业 / 67 事件 / 78 任务 / 108 司法案件），缺失才回退 demo-fixtures——demo 是单一事实源；`tools/check_data_parity.cjs`（run_all 内）对任何漂移报失败。工作流动作（风险派发、任务办结、企业/项目建档、阶段备注、政策入库、AI 会话）经 `APP.sync` 钩子（`web/src/engine/engine.ts`）落库。API 不可达时引擎回退内置演示数据，`MainLayout` 显示「⚠ 本地演示数据」角标（`engine.ts` 的 `engineSource` ref）。登录成功（`POST /api/auth/login` → 前端调 `POST /api/auth/reset-demo`）会重置全部演示数据到种子态，每场演示从干净态开始；随后前端整页跳转，引擎以新数据重新引导。
+V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /api/bootstrap` 一次性下发全部实体，`web/src/engine/adapter.ts` 映射为 demo MOCK 形状，`MOCK_ENGINE.rebuild()`（`web/public/engine/mock.js`）重算全部派生结构（聚合、图谱、AI 日报、政策兑现），保证页页数字对账。**服务器数据由 fixtures 驱动**：`tools/export_demo_fixtures.cjs` 将 demo MOCK 实体导出为 `server/prisma/demo-fixtures.json`（demo 口径：120 企业 / **61 风险事件 / 75 任务** / 24 政策 / 19 项目）。注意 `seed-data.ts` **优先读 `real-fixtures.json`**（真实工商数据，存在时即用它；其为 88 企业 / 67 事件 / 80 任务 / 108 司法案件），缺失才回退 demo-fixtures——demo 是单一事实源；`tools/check_data_parity.cjs`（run_all 内）对任何漂移报失败。工作流动作（风险派发、任务办结、企业/项目建档、阶段备注、政策入库、AI 会话）经 `APP.sync` 钩子（`web/src/engine/engine.ts`）落库。API 不可达时引擎回退内置演示数据，`MainLayout` 显示「⚠ 本地演示数据」角标（`engine.ts` 的 `engineSource` ref）。登录成功（`POST /api/auth/login` → 前端调 `POST /api/auth/reset-demo`）会重置全部演示数据到种子态，每场演示从干净态开始；随后前端整页跳转，引擎以新数据重新引导。
 
 - `demo/DEMO操作说明.md`、`demo/汇报串联脚本.md` — 演示手册与汇报串联脚本。
 - `docs/archive/` — 仅作参考的历史文档（V4 改进大纲与已被取代的 V3.1 / V4.0 / V5.0 需求草稿）。现行权威为根目录《系统需求分析说明书_V5.0_深化版》。
@@ -119,8 +119,9 @@ echarts.min.js → jspdf.umd.min.js → jspdf.plugin.autotable.min.js → mock.j
 - 120 家企业（`ENTERPRISES`，15 深度 + 105 轻量）、8 区县、12 行业
 - 八维加权风险模型（`RISK_DIMS` — 8 条，`calcRiskScore`，`scoreToLevel`，`LEVELS`；`applyRiskWeights` 支持运行时改权重热重算，`defaultRiskWeights` 返回出厂快照）
 - 全部聚合（区县/行业/全市汇总、风险计数）由企业数据 reduce 推导——**天然对账**
-- **67** 条风险事件（`RISK_EVENTS`：待处置 9 / 已派发 31 / 已关闭 27）；**19** 个项目（`PROJECTS`，跨 6 阶段）；**78** 条任务（`TASKS`：风险处置 58 / 政策推送 8 / 企业服务 5 / 项目跟进 4 / 日常巡检 3）
+- **61** 条风险事件（`RISK_EVENTS`：待处置 6 / 已派发 23 / 已关闭 32）；**19** 个项目（`PROJECTS`，跨 6 阶段）；**75** 条任务（`TASKS`：风险处置 55 / 项目跟进 7 / 日常巡检 5 / 政策推送 4 / 企业服务 4）
 - 24 条政策库（`POLICY_LIB`），关系图谱（`GRAPH`，**46 节点 / 117 边**）
+- 以上为纯前端 demo 口径。服务端实际载入 `real-fixtures.json` 口径：88 企业 / **67** 风险事件 / **80** 任务 / **26** 政策 / 19 项目 / 108 司法案件（其中 2 条任务为「今日待办」演示项，`source` 带 `TODAY:` 前缀，入库时截止日期滚动到当天）
 - `AI_DAILY` 由实时数据生成，`DEMO_SCRIPT` 一键演示
 - 种子 PRNG（mulberry32，SEED=20260822）保证演示数据稳定
 - 风险阈值：红 ≥65、橙 ≥45、黄 ≥25、蓝以下。企业风险等级分布：红 2 / 橙 7 / 黄 29 / 蓝 82（共 120）。

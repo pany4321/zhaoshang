@@ -129,7 +129,7 @@ python3 -m http.server 8080    # 或：npx serve .
 | ------ | ------ | ----------- |
 | `Enterprise` 企业 | overview / status / operation / commitments / dynamics / risks / riskScore / riskLevel / shareholders / policies / ai / landMu | 120 家（15 深度建档 + 105 轻量） |
 | `RiskEvent` 风险事件 | 三态：待处置 / 已派发 / 已关闭（9 / 31 / 27） | 67 条 |
-| `Task` 任务 | 与风险事件联动（待处置→已派发→已关闭）+ 常规任务 | 78 条 |
+| `Task` 任务 | 与风险事件联动（待处置→已派发→已关闭）+ 常规任务 | 80 条 |
 | `Policy` 政策 | 层级 / 类型 / 部门 / 兑现计划（`POLICY_REDEEM`） | 24 条 |
 | `Project` 招商项目 | 6 阶段推进 | 19 个 |
 | `Graph` 关系图谱 | 关系网络节点 / 边 | 46 节点 / 117 边 |
@@ -356,12 +356,12 @@ npm run dev           # 启动前端开发服务器 (http://localhost:5173)
 | `User` | 用户 | 7 个 |
 | `Enterprise` | 企业 | 88 家（含股东，真实工商样本） |
 | `RiskEvent` | 风险事件 | 67 条（demo fixtures 为 61） |
-| `Task` | 任务 | 78 条（demo fixtures 为 75） |
+| `Task` | 任务 | 80 条（demo fixtures 为 75） |
 | `Project` | 招商项目 | 19 个 |
 | `Policy` | 政策 | 24 条 |
 | `AiConversation` | AI 对话 | 运行时生成 |
 
-> **载入量以 `server/prisma/seed.ts` 实际读取为准**：优先 `real-fixtures.json`（真实工商数据），缺失时回退 `demo-fixtures.json`。两套差异在风险事件 67/61、任务 78/75；real 口径为 **88 家企业（全部有工商年报公示的数值型财务）**，另含 108 条司法案件（每家最多取最近 8 件）。**样本已锁定为 88 家**（2026-10-22 起暂停每日同步任务），不再随同步变动；如需重新生成，以 `tools/gen_real_fixtures.py` 实际输出为准。
+> **载入量以 `server/prisma/seed.ts` 实际读取为准**：优先 `real-fixtures.json`（真实工商数据），缺失时回退 `demo-fixtures.json`。两套差异在风险事件 67/61、任务 80/75、政策 26/24；real 口径为 **88 家企业（全部有工商年报公示的数值型财务）**，另含 108 条司法案件（每家最多取最近 8 件）。**样本已锁定为 88 家**（2026-10-22 起暂停每日同步任务），不再随同步变动；如需重新生成，以 `tools/gen_real_fixtures.py` 实际输出为准。
 
 风险八维加权模型与等级阈值（红≥65 / 橙≥45 / 黄≥25 / 蓝）与 demo `mock.js` 同源。
 
@@ -396,7 +396,7 @@ npm run preview       # 本地预览生产构建
 
 > **数据口径（单一事实源）**：server 演示数据由 `demo/assets/data/mock.js` 导出的
 > `server/prisma/demo-fixtures.json` 驱动（`node tools/export_demo_fixtures.cjs` 重新导出），
-> **注意两套口径**：`demo-fixtures.json` 与纯前端 demo 同口径（120 家企业 / 61 条风险事件 / 75 条任务 / 24 条政策 / 19 个项目）；但 `seed.ts` **优先读 `real-fixtures.json`**，实际载入为 88 家企业（全部有真实年报财务）/ 67 条风险事件 / 78 条任务 / 24 条政策 / 19 个项目。
+> **注意两套口径**：`demo-fixtures.json` 与纯前端 demo 同口径（120 家企业 / 61 条风险事件 / 75 条任务 / 24 条政策 / 19 个项目）；但 `seed.ts` **优先读 `real-fixtures.json`**，实际载入为 88 家企业（全部有真实年报财务）/ 67 条风险事件 / 80 条任务 / 26 条政策 / 19 个项目（其中 2 条任务为「今日待办」演示项，入库时截止日期滚动到当天）。
 > 对账校验：`node tools/check_data_parity.cjs`。
 
 ---

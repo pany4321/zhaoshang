@@ -74,6 +74,14 @@ function parseCsv(text: string): string[][] {
   return rows
 }
 
+/** 演示「今日待办」任务标记：fixtures 里 source 以此前缀开头的任务，入库时截止日期滚动到当天 */
+const TODAY_TAG = 'TODAY:'
+
+/** 本地时区的 YYYY-MM-DD（不能用 toISOString，UTC 会差 8 小时导致日期错位） */
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export async function seedDemoData(prisma: PrismaClient) {
   const { fixtures, source } = loadFixtures()
   console.log(`🌱 开始填充数据（来源：${source === 'real' ? '真实企业工商数据' : 'demo 演示数据'}）...`)
@@ -209,13 +217,38 @@ export async function seedDemoData(prisma: PrismaClient) {
   console.log(`  ✓ 招商项目 ${fixtures.projects.length} 个`)
 
   // 6. 任务（风险处置任务按 source 关联风险事件，形成闭环）
+  //    source 前缀 "TODAY:" 表示「演示今日待办」：入库时把截止日期滚动到当天，
+  //    否则固定日期一过、今日待办就永远为空（演示时看不到任何待办）。
+  const todayYmd = ymd(new Date())
   for (const t of fixtures.tasks) {
-    const isRiskTask = t.type === 'risk' && !!t.source
+    const rawSource = String(t.source || '')
+    const isTodayDemo = rawSource.startsWith(TODAY_TAG)
+    const taskSource = isTodayDemo ? rawSource.slice(TODAY_TAG.length) : t.source
+    const isRiskTask = t.type === 'risk' && !!taskSource
+    // 显式逐字段构造（不用 spread）：fixtures 是 Record<string,any>，
+    // spread 会把整个对象塞进 Prisma 的联合输入类型，类型检查无法收敛。
     await prisma.task.create({
-      data: { ...t, riskEvent: isRiskTask ? { connect: { id: t.source } } : undefined },
+      data: {
+        id: t.id,
+        title: t.title,
+        type: t.type,
+        priority: t.priority,
+        status: t.status,
+        // 演示今日待办：截止/创建日期滚动到当天，保证任何一天打开工作台都有待办
+        dueDate: isTodayDemo ? todayYmd : t.dueDate,
+        createdAt: isTodayDemo ? todayYmd : t.createdAt,
+        finishedAt: isTodayDemo ? null : (t.finishedAt ?? null),
+        description: t.description ?? null,
+        processLog: isTodayDemo ? null : (t.processLog ?? null),
+        enterpriseId: t.enterpriseId ?? null,
+        projectId: t.projectId ?? null,
+        assignee: t.assignee,
+        source: taskSource ?? null,
+        riskEvent: isRiskTask ? { connect: { id: taskSource } } : undefined,
+      },
     })
   }
-  console.log(`  ✓ 任务 ${fixtures.tasks.length} 条`)
+  console.log(`  ✓ 任务 ${fixtures.tasks.length} 条（其中今日待办 ${fixtures.tasks.filter((t) => String(t.source || '').startsWith(TODAY_TAG)).length} 条滚动到 ${todayYmd}）`)
 
   // 7. 政策
   for (const p of fixtures.policies) {
