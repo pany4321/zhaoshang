@@ -1,10 +1,12 @@
 // ============================================================
-// web 版接口链路回归测试（需 server 运行中，默认 http://localhost:3000）
+// web 版接口链路回归测试（需 server 运行中，默认 http://localhost:5443）
 // 覆盖：健康检查 → 未鉴权拦截 → 登录 → bootstrap 与 fixtures 对账
-//       → 制造脏数据 → 登录重置接口恢复初始态
+//       → 制造脏数据 → 登录重置接口恢复初始态 → 权重配置读写/拦截
+//       → 收尾自动清理脏任务（成功或异常退出都会清）
 //
 // 用法：node tools/verify_web_api.cjs [baseUrl]
-// 注意：测试过程会重置演示数据库（固定种子，无真实数据）。
+// 注意：测试不改动业务数据，唯一副作用是临时创建并删除 DIRTY-VERIFY-WEB-API 任务。
+//       风险权重改完会恢复出厂默认值。
 // ============================================================
 const fs = require('fs');
 const path = require('path');
@@ -30,6 +32,33 @@ async function api(pathname, opts = {}, token) {
   return { status: res.status, body };
 }
 
+// ---- 脏数据自动清理 ----
+// 本测试会在库里创建 DIRTY-VERIFY-WEB-API 任务用于验证「已有数据不被清空」，
+// 跑完必须删掉，否则会留在工作台任务清单里污染演示数据。
+const DIRTY_TITLE = 'DIRTY-VERIFY-WEB-API';
+let token = null;
+
+async function cleanupDirty() {
+  if (!token) return;
+  const bs = await api('/api/bootstrap', {}, token);
+  const list = ((bs.body && bs.body.data && bs.body.data.tasks) || [])
+    .filter(t => (t.title || '').indexOf(DIRTY_TITLE) >= 0);
+  if (!list.length) {
+    console.log('[清理] 无脏任务残留');
+    return;
+  }
+  let removed = 0;
+  for (const t of list) {
+    const r = await api('/api/workbench/tasks/' + t.id, { method: 'DELETE' }, token);
+    if (r.status === 200) removed++;
+  }
+  check('脏任务已自动清理', removed === list.length, `删除 ${removed}/${list.length} 条`);
+  const bs2 = await api('/api/bootstrap', {}, token);
+  const left = ((bs2.body && bs2.body.data && bs2.body.data.tasks) || [])
+    .filter(t => (t.title || '').indexOf(DIRTY_TITLE) >= 0).length;
+  check('清理后无脏任务残留', left === 0, `残留 ${left} 条`);
+}
+
 (async () => {
   // 0. 健康检查
   let health;
@@ -51,7 +80,7 @@ async function api(pathname, opts = {}, token) {
     body: JSON.stringify({ username: 'admin', password: 'admin123' }),
   });
   check('登录成功', login.status === 200 && !!(login.body.data && login.body.data.token));
-  const token = login.body.data && login.body.data.token;
+  token = login.body.data && login.body.data.token;
 
   // 3. bootstrap 与 fixtures 基线对账
   const bs = await api('/api/bootstrap', {}, token);
@@ -150,13 +179,18 @@ async function api(pathname, opts = {}, token) {
   ];
   await api('/api/config/risk-weights', { method: 'PUT', body: JSON.stringify(defaultWeights) }, token);
 
+  // 7. 收尾：删除本测试产生的脏任务（历史残留一并清掉），避免污染演示数据
+  await cleanupDirty();
+
   console.log('\n========================================');
   if (fails) {
     console.log(`结果：${fails} 项失败`);
     process.exit(1);
   }
   console.log('结果：接口链路回归全部通过 ✅');
-})().catch(e => {
+})().catch(async e => {
   console.error('FAIL:', e.message);
+  // 异常退出也要尽力清理，避免半途失败留下脏数据
+  try { await cleanupDirty(); } catch (e2) { console.error('[清理失败]', e2.message); }
   process.exit(1);
 });

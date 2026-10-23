@@ -49,6 +49,7 @@ data-import/
 
 # Prisma 编译产物（可能含种子口令）
 server/prisma/seed-data.js
+server/prisma/seed-data.js.map
 server/prisma/seed.js
 
 # 隧道/服务运行日志（可能含公网地址与会话令牌）

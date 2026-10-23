@@ -180,4 +180,21 @@ export default async function (fastify: FastifyInstance) {
       { title: task.title, type: task.type, assignee: task.assignee }, auditCtx(request))
     return ok(task, '任务已创建')
   })
+
+  // 删除任务（误建清理 / 测试收尾）。写入审计，便于追溯谁删了什么。
+  fastify.delete('/tasks/:id', { preHandler: [fastify.authenticate] }, async (request: any, reply) => {
+    const id = Number(request.params.id)
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send(fail('任务 ID 非法'))
+    }
+    const task = await prisma.task.findUnique({ where: { id } })
+    if (!task) {
+      return reply.code(404).send(fail('任务不存在'))
+    }
+    await prisma.task.delete({ where: { id } })
+    await audit('task_delete', `Task:${id}`,
+      { title: task.title, type: task.type, assignee: task.assignee, status: task.status },
+      auditCtx(request))
+    return ok({ id }, '任务已删除')
+  })
 }

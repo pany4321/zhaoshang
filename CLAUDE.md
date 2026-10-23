@@ -21,7 +21,7 @@ The V5 full-stack version (`server/` + `web/`) replicates all 9 demo pages 1:1: 
 - `tools/sync_engine.py` — syncs shared engine files (`utils/state/components/pages/*.js`, `style.css`) from `demo/` to `web/public/engine/` and re-runs the mock generator; `--check` verifies only (exit 1 on drift). Not synced (intentionally diverged/generated): `mock.js` (generated), `app-core.js` (Vue-Router-hosted rewrite of demo `app.js`), `vendor/`. Run after any demo engine change.
 - `tools/export_demo_fixtures.cjs` — exports demo MOCK entities to `server/prisma/demo-fixtures.json` (server-shaped: reverse dimension/status/type maps, 9 risk dims). Run after any demo mock.js change, before `npm run db:seed`.
 - `tools/check_data_parity.cjs` — parity check: demo MOCK vs `demo-fixtures.json` (entity counts, ID sets, name order, risk distributions, referential integrity). Offline; in run_all.
-- `tools/verify_web_api.cjs` — web API regression against a running server (login → bootstrap-vs-fixtures counts → dirty task → reset-demo restores baseline → 401 without auth). Requires `cd server && npm run dev`; run_all skips it when the server is down.
+- `tools/verify_web_api.cjs` — web API regression against a running server (login → bootstrap-vs-fixtures counts → dirty task → reset-demo semantics → 401 without auth → risk-weight read/write/reject → **dirty task auto-cleanup on finish**). Dirty tasks are removed via `DELETE /api/workbench/tasks/:id` on both success and failure paths (leftovers from earlier runs are swept too). Requires `cd server && npm run dev`; run_all skips it when the server is down.
 - `tools/build_engine_mock.py` — regenerates `web/public/engine/mock.js` from `demo/assets/data/mock.js`: copies it verbatim (demo mock.js is already the injectable-RNG shape: `enrich`/`deriveAll` take `R`, bodies use `R.*`, own `return`), strips the old export block, and appends the unified export + `MOCK_ENGINE` (`rebuild` replaces the closure arrays **in place** so `entById` etc. stay in sync with `global.MOCK`). Self-checks `R.R.` double-prefix and brace balance.
 - `tools/run_all.cjs` — unified test entry: runs the whole suite below plus the API regression (skipped when server is down) and exits non-zero on any failure (`npm test`).
 - `tools/test_engine_rebuild.cjs` — Node smoke test for the engine mock (local generation output + server-data rebuild path).
@@ -96,7 +96,7 @@ Open `demo/index.html` directly in a browser (Chrome/Edge). ECharts is vendored 
 
 1. `npm test` 的首步就是引擎一致性前置检查——"改了 demo 忘了同步 web"在这一步被拦截，不得绕过。
 2. AI 协作与会话工作流：任何改动的收尾必须包含 `npm test` 全绿（涉 web 另加 build），否则不得声称完成。
-3. `verify_web_api` 会重置演示数据库（固定种子 fixtures，无真实数据），依赖运行中的 server；未运行时 run_all 显示 `[SKIP]` 并给出启动命令。
+3. `verify_web_api` 依赖运行中的 server，**不改动业务数据**：仅临时创建并删除 `DIRTY-VERIFY-WEB-API` 任务（收尾自动清理），风险权重验证后恢复出厂默认。未运行时 run_all 显示 `[SKIP]` 并给出启动命令。
 4. smoke_test.js 逐文件加载 demo JS 到 JSDOM（runScripts: 'outside-only'），stub `window.echarts` 的 `init()`（`{setOption, dispose, resize, on}`）**和** `echarts.graphic.LinearGradient`/`RadialGradient`（含 `addColorStop`）；结尾 `process.exit(0)`（app.js 的 `setInterval` 时钟否则让 node 永不退出）。
 
 ## V4 Demo architecture

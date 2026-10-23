@@ -7,7 +7,7 @@ import { prisma } from './prisma.js'
 
 export type AuditAction =
   | 'login' | 'login_fail' | 'logout' | 'change_password'
-  | 'dispatch_risk' | 'task_start' | 'task_finish' | 'task_create'
+  | 'dispatch_risk' | 'task_start' | 'task_finish' | 'task_create' | 'task_delete'
   | 'create_enterprise' | 'create_project' | 'project_note' | 'create_policy'
   | 'update_risk_weights' | 'sync_data'
 

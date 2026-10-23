@@ -329,6 +329,7 @@ npm run dev           # 启动前端开发服务器 (http://localhost:5173)
 | `POST /api/risk/:id/dispatch` | 风险事件派发（服务端生成任务、事件转在办） |
 | `POST /api/workbench/tasks/:id/finish` | 任务办结（联动风险事件闭环） |
 | `POST /api/workbench/tasks` | 新建任务 |
+| `DELETE /api/workbench/tasks/:id` | 删除任务（写审计 `task_delete`；测试收尾清理也走此接口） |
 | `POST /api/enterprise` · `POST /api/project` | 招商建档（企业 + 项目） |
 | `POST /api/project/:id/note` | 项目阶段进展备注 |
 | `POST /api/policy` | 政策入库 |

@@ -21,7 +21,7 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 - `tools/sync_engine.py` — 将共享引擎文件（`utils/state/components/pages/*.js`、`style.css`）从 `demo/` 同步到 `web/public/engine/` 并代跑 mock 生成器；`--check` 仅校验（漂移时退出码 1）。不同步（有意分化/生成物）：`mock.js`（生成）、`app-core.js`（demo `app.js` 的 Vue-Router 托管改写）、`vendor/`。改 demo 引擎后必跑。
 - `tools/export_demo_fixtures.cjs` — 将 demo MOCK 实体导出为 `server/prisma/demo-fixtures.json`（server 形状：维度/状态/类型反向映射、9 风险维）。改 demo mock.js 后、`npm run db:seed` 前必跑。
 - `tools/check_data_parity.cjs` — 对账：demo MOCK vs `demo-fixtures.json`（实体计数、ID 集合、名称顺序、风险分布、引用完整性）。离线可跑；在 run_all 内。
-- `tools/verify_web_api.cjs` — 面向运行中 server 的接口回归（登录 → bootstrap 与 fixtures 计数对账 → 脏任务 → reset-demo 恢复基线 → 未鉴权 401 → 权重配置读写/拦截）。需 `cd server && npm run dev`；server 未运行时 run_all 自动 SKIP。
+- `tools/verify_web_api.cjs` — 面向运行中 server 的接口回归（登录 → bootstrap 与 fixtures 计数对账 → 脏任务 → reset-demo 语义校验 → 未鉴权 401 → 权重配置读写/拦截 → **收尾自动清理脏任务**）。脏任务经 `DELETE /api/workbench/tasks/:id` 删除，正常结束和异常退出都会清理（历史残留一并清）。需 `cd server && npm run dev`；server 未运行时 run_all 自动 SKIP。
 - `tools/build_engine_mock.py` — 从 `demo/assets/data/mock.js` 再生 `web/public/engine/mock.js`：原样拷贝（demo mock.js 已是可注入 RNG 形态：`enrich`/`deriveAll` 接收 `R`、体内 `R.*`、自带 `return`），裁掉旧导出块，追加统一导出 + `MOCK_ENGINE`（`rebuild` **原地**替换闭包数组，使 `entById` 等与 `global.MOCK` 保持同步）。自检 `R.R.` 双重前缀与括号配平。
 - `tools/run_all.cjs` — 统一测试入口：首步引擎一致性前置检查 → 下方全部脚本 + 接口回归（server 未运行时 SKIP），任一失败退出码非零（`npm test`）。
 - `tools/test_engine_rebuild.cjs` — 引擎 mock 冒烟（本地生成输出 + server 数据 rebuild 路径）。
@@ -97,7 +97,7 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 
 1. `npm test` 的首步就是引擎一致性前置检查——"改了 demo 忘了同步 web"在这一步被拦截，不得绕过。
 2. AI 协作与会话工作流：任何改动的收尾必须包含 `npm test` 全绿（涉 web 另加 build），否则不得声称完成。
-3. `verify_web_api` 会重置演示数据库（固定种子 fixtures，无真实数据），依赖运行中的 server；未运行时 run_all 显示 `[SKIP]` 并给出启动命令。
+3. `verify_web_api` 依赖运行中的 server，**不改动业务数据**：仅临时创建并删除 `DIRTY-VERIFY-WEB-API` 任务（收尾自动清理），风险权重验证后恢复出厂默认。未运行时 run_all 显示 `[SKIP]` 并给出启动命令。
 4. smoke_test.js 逐文件加载 demo JS 到 JSDOM（runScripts: 'outside-only'），stub `window.echarts` 的 `init()`（`{setOption, dispose, resize, on}`）**和** `echarts.graphic.LinearGradient`/`RadialGradient`（含 `addColorStop`）；结尾 `process.exit(0)`（app.js 的 `setInterval` 时钟否则让 node 永不退出）。
 
 ## V4 Demo 架构
