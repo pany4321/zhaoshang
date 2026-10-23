@@ -5,6 +5,53 @@
 
 ---
 
+## v5.1.11 — 2026-10-23 · 修复 demo 真实数据集关联字段缺失（产业名 / 区县名 / 地址）
+
+### 问题
+
+v5.1.9 / v5.1.10 生成的 `real-data.js` 把 `real-fixtures.json` **直接**喂给
+`adapter.mapBootstrap()`，漏了 Prisma 的 `include` 这一步：fixtures 是扁平表结构
+（企业只有 `industryId` / `districtId`），而 `mapEnterprise()` 靠
+`e.industry?.name` / `e.district?.name` 取中文名，于是全部回退成外键原值：
+
+| 位置 | 症状 |
+|---|---|
+| 产业分布结构图 | 分类名变成英文 key：`chemical` / `software` / `agrifood` |
+| 企业列表「所属区县」 | 变成英文 id：`xf` / `qc` / `zx` |
+| 企业地址 | **全部**变成「省外线索 · 待落地核实」 |
+| 项目页区县、任务页企业名 | 同样退化成 id 或空白 |
+
+全栈版（`zs.195656.xyz`）不受影响 —— `/api/bootstrap` 走 Prisma 查询，关联对象齐全。
+
+### 修复
+
+- `tools/gen_demo_real_data.mjs`：`mapBootstrap` 之前补**关联回填**（等价 Prisma `include`），
+  覆盖 `enterprise.district/industry`、`riskEvent.enterprise`、
+  `project.enterprise/district/industry`、`task.enterprise/project`、`policy.industry` 五类关联。
+- `tools/verify_demo_data_source.mjs`：新增 4 条**文案层**断言。此前只验数量与聚合，
+  「数字全对、文案全错」也能通过 —— 这是本次漏检的直接原因：
+  ① 产业名不得为英文 key ② 区县名不得为英文 id ③ 地址不得是「省外线索」占位
+  ④ 产业分布图分类名必须含中文。
+
+### 顺带：磁盘 offload（容器卫生）
+
+- `workspace/keepalive.sh`（源副本 `tools/keepalive.sh`）：新增 offload 自愈 —— 把
+  `/root/.cache`（715M）、`/root/.npm`（102M）软链到 workspace 持久卷，并在容器重建后
+  自动补回软链；顺带清理 1 天前的 `/tmp` 文件（`/tmp` 写满会让 runc 无法创建进程，
+  `terminal` 会彻底不可用）。
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| 产业分布图分类名 | 石油化工与能源 / 新能源装备制造 / 软件与信息技术 / 化学原料制造 ✅ 中文 |
+| 英文产业 key | 0 家 |
+| 英文区县 id | 0 家 |
+| 「省外线索」地址占位 | 0 家 |
+| 其余断言 | 全部通过（88 家 / 营收 91.75 亿 / 明细数对齐后端 / 两次装载逐字节一致） |
+
+---
+
 ## v5.1.10 — 2026-10-23 · 真实企业数据授权公开（demo 静态页 / Pages 版同源）
 
 ### 决策

@@ -1,13 +1,6 @@
 #!/bin/bash
 # 保活 + 自愈（cron 每 4 分钟调用）
 #
-# ⚠️ 2026-10-21 已迁移：cron 现在调用的是 workspace/keepalive.sh（本文件的副本）。
-#    迁移原因：AGENTS.md 的子目录注入由 terminal 命令文本里的路径触发，
-#    命令若写成 .../projects/zhaoshang/tools/keepalive.sh，每轮会被注入 11KB 的
-#    AGENTS.md 正文（26.8KB/次 → 13.7KB/次）。所以 cron 侧改指向 workspace 根目录下的副本。
-#    改本文件后请同步：cp projects/zhaoshang/tools/keepalive.sh ../../keepalive.sh
-#    真正生效的是 workspace/keepalive.sh。
-#
 # 设计目标：
 #   1. 保活  —— 产生一次容器活动，避免空闲被平台回收
 #   2. 自愈  —— 服务若已挂，执行 restart.sh 重新拉起
@@ -18,6 +11,29 @@
 APP=/home/pingan/.xiatang/profiles/org21_13701171956/workspace/projects/zhaoshang
 LOG=/home/pingan/.xiatang/profiles/org21_13701171956/workspace/keepalive_events.log
 DOMAIN=zs.195656.xyz
+WS=/home/pingan/.xiatang/profiles/org21_13701171956/workspace
+
+# ── 磁盘 offload 自愈（每轮静默执行，不影响输出）────────────────────────
+# /root 在 overlay 可写层（200G 共享盘，容器重建即丢），npm / pip / 浏览器缓存
+# 会持续往里写。把它们软链到 workspace 持久卷（3TB）上，减少对 overlay 的增量。
+# 容器重建后 /root 会被重建为普通目录（软链丢失），这里每 4 分钟补回一次。
+# 注意：/tmp 满时 runc 无法创建进程，terminal 会彻底不可用 —— 所以顺带清过期临时文件。
+offload_link() {
+  local target="$1" dest="$2"
+  mkdir -p "$dest" 2>/dev/null
+  if [ -L "$target" ]; then
+    [ "$(readlink "$target" 2>/dev/null)" = "$dest" ] || { rm -f "$target"; ln -sfn "$dest" "$target"; }
+  elif [ -d "$target" ]; then
+    cp -a "$target/." "$dest/" 2>/dev/null
+    rm -rf "$target" && ln -sfn "$dest" "$target"
+  else
+    ln -sfn "$dest" "$target"
+  fi
+}
+offload_link /root/.cache "$WS/.offload/cache"
+offload_link /root/.npm   "$WS/.offload/npm"
+# 只清 1 天前的临时文件，避免误删正在写的 runc / 浏览器文件
+find /tmp -maxdepth 1 -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 
 # 健康 → 只回 ok（一行，最省 token）
 if curl -sf -m 5 http://127.0.0.1:5443/api/health > /dev/null 2>&1; then

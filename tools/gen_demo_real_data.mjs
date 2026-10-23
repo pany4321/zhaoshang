@@ -43,6 +43,37 @@ const adapter = require(outfile)
 
 // —— 3. 映射 + 统计 ——
 const fixtures = JSON.parse(readFileSync(FIXTURES, 'utf-8'))
+// —— 3. 关联回填（等价于 Prisma 的 include），必须在 mapBootstrap 之前 ——
+// fixtures 是扁平表结构：企业只有 industryId / districtId，没有嵌套关联对象。
+// 线上 /api/bootstrap 走 Prisma 查询，industry / district 是 include 出来的，
+// adapter.mapEnterprise 靠 e.industry?.name 取中文名。若直接喂 fixtures：
+//   industryName → 退化成英文 key（chemical / software）
+//   districtName → 退化成英文 id（xf / qc）
+//   address      → 全部变成「省外线索 · 待落地核实」
+// 这次就是漏了这一步，导致产业分布图、区县列、企业地址全部走样。
+const idx = (arr) => Object.fromEntries((arr || []).map((x) => [x.id, x]))
+const DIX = idx(fixtures.districts)
+const IIX = idx(fixtures.industries)
+const EIX = idx(fixtures.enterprises)
+const PIX = idx(fixtures.projects)
+for (const e of fixtures.enterprises) {
+  e.district = e.districtId ? DIX[e.districtId] || null : null
+  e.industry = e.industryId ? IIX[e.industryId] || null : null
+}
+for (const ev of fixtures.riskEvents || []) ev.enterprise = EIX[ev.enterpriseId] || null
+for (const p of fixtures.projects || []) {
+  p.enterprise = EIX[p.enterpriseId] || null
+  p.district = p.districtId ? DIX[p.districtId] || null : null
+  p.industry = p.industryId ? IIX[p.industryId] || null : null
+}
+for (const t of fixtures.tasks || []) {
+  t.enterprise = t.enterpriseId ? EIX[t.enterpriseId] || null : null
+  t.project = t.projectId ? PIX[t.projectId] || null : null
+}
+for (const pc of fixtures.policies || []) {
+  pc.industry = pc.industryId ? IIX[pc.industryId] || null : null
+}
+
 const raw = adapter.mapBootstrap(fixtures)
 
 // —— 3.5 演示日期滚动标记（与 server/prisma/seed-data.ts 的 "TODAY:" 机制等价）——

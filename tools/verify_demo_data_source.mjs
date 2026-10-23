@@ -87,6 +87,16 @@ if (!hasReal) {
   const sumRisk = M.ENTERPRISES.reduce((a, e) => (a[e.riskLevel] = (a[e.riskLevel] || 0) + 1, a), {})
   ok(sumRisk.red + sumRisk.orange + sumRisk.yellow + sumRisk.blue === 88, '四级风险分布覆盖全部企业：' + JSON.stringify(sumRisk))
   ok(M.OVERVIEW && M.OVERVIEW.totalEnterprises === 88, `OVERVIEW 企业数 = 88（实际 ${M.OVERVIEW && M.OVERVIEW.totalEnterprises}）`)
+  // 文案层断言：光数字对不算通过 —— 关联对象缺失时数量照样是 88，
+  // 但产业名会变成英文 key、区县名变成英文 id、地址全变「省外线索」。
+  const enKey = M.ENTERPRISES.filter(e => /^[a-z]+$/.test(String(e.industryName || '')))
+  ok(enKey.length === 0, `产业名均为中文（英文 key ${enKey.length} 家${enKey.length ? '：' + enKey.slice(0, 3).map(e => e.name + '→' + e.industryName).join('、') : ''}）`)
+  const dKey = M.ENTERPRISES.filter(e => /^[a-z]{2,5}$/.test(String(e.districtName || '')))
+  ok(dKey.length === 0, `区县名均为中文（英文 id ${dKey.length} 家${dKey.length ? '：' + dKey.slice(0, 3).map(e => e.name + '→' + e.districtName).join('、') : ''}）`)
+  const outProv = M.ENTERPRISES.filter(e => String(e.address || '').includes('省外线索'))
+  ok(outProv.length === 0, `企业地址按区县生成（「省外线索」占位 ${outProv.length} 家）`)
+  const indNames = (M.INDUSTRIES || []).map(x => x.name)
+  ok(indNames.length > 0 && indNames.every(n => /[\u4e00-\u9fa5]/.test(String(n))), `产业分布图分类名均为中文：${indNames.slice(0, 4).join('/')}…`)
   const pad = n => (n < 10 ? '0' + n : '' + n)
   const now = new Date()
   const todayStr = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate())
