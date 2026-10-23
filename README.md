@@ -60,7 +60,7 @@ demo/
 - **数据源（两级）**：`mock.js` 以 IIFE 挂载到 `window.MOCK`（Node 环境退化为 `global.MOCK`）。页面渲染器从 `MOCK` 读取数据，不发起任何 `fetch` / XHR。
   - **真实数据集（可选，优先）**：`demo/assets/data/real-data.js` 存在时，脚本在 `mock.js` 之后自动调用 `MOCK_ENGINE.rebuild()` 用真实企业数据重建全部派生结构。该文件由 `node tools/gen_demo_real_data.mjs` 生成，数据源与全栈版**完全同源**（`server/prisma/real-fixtures.json` → `web/src/engine/adapter.ts` 同一份 `mapBootstrap` 映射 → 同一套 `rebuild` 算法），因此 demo 与线上页面数字逐项一致（88 家企业 / 真实工商 + 年报财务）。
   - **内置模拟数据（兜底）**：`real-data.js` 缺失（如 GitHub Pages 公开演示、CI 环境）时自动回落 `mock.js` 生成的 120 家企业，页面不报错。
-  - ⚠️ `real-data.js` 含真实企业名称 / 统一社会信用代码 / 财务数据，**已写入 `.gitignore`，不得提交**；删除该文件即回滚到纯模拟数据。
+  - ⚠️ `real-data.js` 含真实企业名称 / 统一社会信用代码 / 财务数据，**已获授权公开并纳入版本管理**（2026-10-23），因此 GitHub Pages 版 demo 同样展示真实数据；删除该文件即回滚到纯模拟数据。
 - **固定种子可重现**：`SEED = 20260822` + `mulberry32` 伪随机，每次打开数据完全一致（确定性），便于演示与复现。真实数据集模式同样确定：`rebuild` 用字符串种子 `zs-rebuild-v1`，同一份数据两次装载结果逐字节相同（仅「今日待办 / 本周新增」等少量任务日期按本地时区滚动到当天，与后端 `TODAY:` 机制等价，其余日期固定）。
 - **派生引擎**：`MOCK_ENGINE.enrich / deriveAll / rebuild(raw)` 在加载时一次性计算聚合、图谱、AI 日报、政策兑现等派生结构；前后端分离版复用同一引擎做「服务器数据 → MOCK 形状」的 rebuild。
 - **视觉 1:1**：设计系统、DOM 结构、组件（Toast / 抽屉 / 确认框 / 分页 / 骨架屏）、图表配置全部内置，零外部依赖。

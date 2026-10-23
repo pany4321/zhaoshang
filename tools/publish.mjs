@@ -31,5 +31,22 @@ mkdirSync(PUBLIC, { recursive: true })
 cpSync(DIST, PUBLIC, { recursive: true })
 console.log(`[publish] 已发布 ${readdirSync(PUBLIC).length} 个顶层条目 → server/public`)
 
+// 2.5) 纯前端 demo 一并发布到 /demo/ 子路径
+//   为什么需要：demo/ 是独立于 Vue 构建的纯前端原型（无构建步骤），但它要能被
+//   同一个公网入口访问，否则只能走 GitHub Pages —— 而 Pages 站点不能携带
+//   demo/assets/data/real-data.js（含真实企业数据）—— 该文件现已获授权公开并入库，
+//   Pages 版同样带真实数据；挂到 ./demo/ 的作用是给部署机一个同域入口，
+//   与 Vue 全栈版共用同一条隧道，容器重启后由 restart.sh 一并恢复。
+//   .md 是演示手册，不随站点发布。
+const DEMO = join(ROOT, 'demo')
+if (existsSync(DEMO)) {
+  cpSync(DEMO, join(PUBLIC, 'demo'), {
+    recursive: true,
+    filter: (src) => !src.endsWith('.md'),
+  })
+  const hasReal = existsSync(join(DEMO, 'assets/data/real-data.js'))
+  console.log(`[publish] 已附带纯前端 demo → server/public/demo（访问 /demo/，真实数据集: ${hasReal ? '有' : '无→回落模拟数据'}）`)
+}
+
 // 3) 生成预压缩（供 @fastify/static 的 preCompressed 直接命中）
 execSync('node tools/precompress.mjs server/public', { cwd: ROOT, stdio: 'inherit' })

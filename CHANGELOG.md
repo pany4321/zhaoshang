@@ -5,6 +5,43 @@
 
 ---
 
+## v5.1.10 — 2026-10-23 · 真实企业数据授权公开（demo 静态页 / Pages 版同源）
+
+### 决策
+
+用户明确确认：**企业真实数据（名称 / 信用代码 / 法人 / 财务）不敏感，可以公开**。
+因此把 `server/prisma/real-fixtures.json` 与 `demo/assets/data/real-data.js` 从
+`.gitignore` 移出、纳入版本管理 —— 直接效果是 **GitHub Pages 版 demo 也展示 88 家真实企业**，
+不再回落 120 家模拟数据（此前 v5.1.9 把该文件排除在仓库外，Pages 从仓库发布自然拿不到）。
+
+### 边界（未松动）
+
+| 类别 | 处理 |
+|---|---|
+| 凭据：`LLM_*` / `MCP_*` / `JWT_SECRET` / token | **仍严禁提交**，只存 `server/.env`，pre-commit 继续拦截 |
+| `real-fixtures.json` / `real-data.js` | 纳入版本管理（本次变更） |
+| 原始取数 `data-import/**`、`*.csv` | 仍不提交 —— 含未加工原始字段，与「页面展示所需」不是一回事 |
+| 历史快照 `server/prisma/snapshots/` | 仍不提交（按需单独评估） |
+
+### 同步改动
+
+- `tools/pre-commit-check.sh`：移除对 `real-fixtures.json` 的拦截，保留 CSV / 原始取数目录拦截；提示语同步
+- `.gitignore`：两行忽略规则改为「授权说明 + 凭据红线提醒」
+- `README.md` / `AGENTS.md` / `CLAUDE.md` / `docs/数据口径说明.md`：把「已 gitignore、不得提交」
+  改为「已获授权公开并纳入版本管理（2026-10-23），Pages 版同样带真实数据」
+- `tools/publish.mjs`：构建时连带发布纯前端 demo → `server/public/demo`，与全栈版共用
+  `zs.195656.xyz` 隧道（访问 `/demo/`），容器重建后由 `restart.sh` 一并恢复
+
+### 验证
+
+| 入口 | 结果 |
+|---|---|
+| 容器内 `http://127.0.0.1:5442/` | `MOCK.ENTERPRISES = 88`、`__REAL_DATA__ = true`、营收 91.7 亿、首家企业「甘肃赛凯格建筑工程有限公司」 |
+| `https://zs.195656.xyz/demo/` | `/demo/` 200、`real-data.js` 200 / 475407B（真实数据随部署机发布，不进仓库也能用） |
+| GitHub Pages | 本次推送后自动部署，页面应展示 88 家真实企业（待部署完成复核） |
+
+---
+
 ## v5.1.9 — 2026-10-23 · demo 静态页接入真实企业数据集（与全栈版同源）
 
 ### 背景

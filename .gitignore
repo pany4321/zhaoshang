@@ -40,10 +40,14 @@ web/.env
 web/.env.*
 !web/.env.example
 
-# 真实企业数据（来源：工商/信用数据源，含企业名称、法人、统一社会信用代码）
-server/prisma/real-fixtures.json
-# demo 静态页真实数据集（由 real-fixtures 映射生成，同样含真实企业名称/信用代码/财务）
-demo/assets/data/real-data.js
+# 真实企业数据（工商/信用数据源，含企业名称/信用代码/法人/财务）
+# 2026-10-23 用户明确授权：数据主体不敏感，可公开。因此下面两份纳入版本管理，
+# 使 GitHub Pages 版 demo 也能展示真实企业与财务数据（否则 Pages 只能看到 120 家模拟数据）。
+#   server/prisma/real-fixtures.json   —— 后端种子源
+#   demo/assets/data/real-data.js      —— demo 静态页数据集（由前者映射生成）
+# ⚠️ 凭据（大模型 key / MCP 接口参数 / JWT / 认证 token）仍严禁提交，见下方 Env 段。
+# 原始取数文件（data-import/、*.csv）与历史快照仍不提交——它们含未加工的原始字段，
+# 与"页面展示所需"不是一回事，需要时单独评估。
 # 固定样本快照含真实工商数据（企业名/信用代码/财务），仅本地保存，禁止入库
 server/prisma/snapshots/
 data-import/

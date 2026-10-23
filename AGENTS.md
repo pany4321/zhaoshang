@@ -7,7 +7,7 @@
 《招商企业服务与智慧监管平台》（Enterprise Service & Smart Supervision Platform，面向庆阳市）提案交付物仓库——**不是生产应用**：
 
 - `招商企业服务与智慧监管平台_系统需求分析说明书_V5.0_深化版.md` — 需求说明书（V5.0 深化版，**现行唯一权威**）。取代已归档的 V3.1 / V4.0 / V5.0 旧版（见 `docs/archive/`）。业务逻辑权威口径：**八维**加权风险模型及其权重、红/橙/黄/蓝四级风险、用户角色、AI 能力矩阵、数据架构。（V3.1 旧稿描述"九维"模型；实际 demo/引擎为八维——见 `demo/assets/data/mock.js` 的 `RISK_DIMS`。）
-- `demo/` — 纯前端高保真交互原型（多文件；设计系统 V4，功能集对齐 V5.0 深化版）。**设计 & 行为唯一基准**。数据源两级：`mock.js` 内置 120 家模拟企业（兜底）；若存在 `assets/data/real-data.js`（`node tools/gen_demo_real_data.mjs` 生成，与全栈版同源 88 家真实工商数据），则在 `mock.js` 之后自动 `MOCK_ENGINE.rebuild()` 覆盖。该文件含真实企业数据，**已 gitignore，不得提交**。
+- `demo/` — 纯前端高保真交互原型（多文件；设计系统 V4，功能集对齐 V5.0 深化版）。**设计 & 行为唯一基准**。数据源两级：`mock.js` 内置 120 家模拟企业（兜底）；若存在 `assets/data/real-data.js`（`node tools/gen_demo_real_data.mjs` 生成，与全栈版同源 88 家真实工商数据），则在 `mock.js` 之后自动 `MOCK_ENGINE.rebuild()` 覆盖。该文件含真实企业数据，**已获授权公开并纳入版本管理**（2026-10-23），Pages 版 demo 同样带真实数据。
 - `server/` — 后端（Fastify + Prisma + SQLite + TypeScript），V5 全栈版组成部分。
 - `web/` — 前端（Vue 3 + Vite + Pinia 壳；构建经 manualChunks 分包 echarts/vue），在 `web/public/engine/` **vendor 了 demo 引擎**（与 `demo/` 相同的 style.css、页面渲染器、components），并回放服务器数据。**不要用 Vue 重写页面——扩展引擎**。
 - `README.md` — V5 全栈版快速上手指南。
@@ -23,7 +23,7 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 - `tools/check_data_parity.cjs` — 对账：demo MOCK vs `demo-fixtures.json`（实体计数、ID 集合、名称顺序、风险分布、引用完整性）。离线可跑；在 run_all 内。
 - `tools/verify_web_api.cjs` — 面向运行中 server 的接口回归（登录 → bootstrap 与 fixtures 计数对账 → 脏任务 → reset-demo 语义校验 → 未鉴权 401 → 权重配置读写/拦截 → **收尾自动清理脏任务**）。脏任务经 `DELETE /api/workbench/tasks/:id` 删除，正常结束和异常退出都会清理（历史残留一并清）。需 `cd server && npm run dev`；server 未运行时 run_all 自动 SKIP。
 - `tools/build_engine_mock.py` — 从 `demo/assets/data/mock.js` 再生 `web/public/engine/mock.js`：原样拷贝（demo mock.js 已是可注入 RNG 形态：`enrich`/`deriveAll` 接收 `R`、体内 `R.*`、自带 `return`），裁掉旧导出块，追加统一导出 + `MOCK_ENGINE`（`rebuild` **原地**替换闭包数组，使 `entById` 等与 `global.MOCK` 保持同步）。自检 `R.R.` 双重前缀与括号配平。
-- `tools/gen_demo_real_data.mjs` — 生成 `demo/assets/data/real-data.js`（demo 静态页真实数据集）：读 `real-fixtures.json` → esbuild 现编 `web/src/engine/adapter.ts` 跑**线上同一份** `mapBootstrap()` → 输出 `window.MOCK_REAL` + 装载逻辑（含少量任务日期滚动）。产物 464KB、**gitignore**。改 `real-fixtures.json` 或 `adapter.ts` 后需重跑。
+- `tools/gen_demo_real_data.mjs` — 生成 `demo/assets/data/real-data.js`（demo 静态页真实数据集）：读 `real-fixtures.json` → esbuild 现编 `web/src/engine/adapter.ts` 跑**线上同一份** `mapBootstrap()` → 输出 `window.MOCK_REAL` + 装载逻辑（含少量任务日期滚动）。产物 464KB，已纳入版本管理（数据主体获授权公开）。改 `real-fixtures.json` 或 `adapter.ts` 后需重跑。
 - `tools/verify_demo_data_source.mjs` — demo 数据源校验：真实装载（88 家 / 明细数对齐后端）/ 确定性（两次装载逐字节一致）/ 兜底回落（无 real-data.js → 120 家）/ 9 页渲染。
 - `tools/run_all.cjs` — 统一测试入口：首步引擎一致性前置检查 → 下方全部脚本 + 接口回归（server 未运行时 SKIP），任一失败退出码非零（`npm test`）。
 - `tools/test_engine_rebuild.cjs` — 引擎 mock 冒烟（本地生成输出 + server 数据 rebuild 路径）。

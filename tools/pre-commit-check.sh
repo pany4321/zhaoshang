@@ -2,7 +2,9 @@
 # ============================================================
 # 提交前敏感信息拦截
 # 安装：cp tools/pre-commit-check.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
-# 作用：暂存区一旦出现凭据文件、真实企业数据、密钥形态内容，直接阻止提交
+# 作用：暂存区一旦出现凭据文件、密钥形态内容，直接阻止提交
+# 说明：企业真实数据（real-fixtures.json / real-data.js）已获授权公开（2026-10-23），
+#       不再拦截；凭据类（.env / 密钥 / 令牌）仍是硬红线。
 # ============================================================
 set -uo pipefail
 
@@ -24,11 +26,11 @@ while IFS= read -r f; do
     .env*) fail "禁止提交环境变量文件: $f"; continue ;;
   esac
 
-  # 真实企业数据
+  # 真实企业数据：real-fixtures.json / real-data.js 已获授权公开（2026-10-23），不拦截。
+  # 原始取数文件仍拦截——含未加工原始字段，与页面展示所需不是一回事。
   case "$f" in
-    server/prisma/real-fixtures.json) fail "禁止提交真实企业数据: $f"; continue ;;
-    data-import/*)                    fail "禁止提交数据导入目录: $f"; continue ;;
-    *.csv)                            fail "禁止提交 CSV 数据文件: $f"; continue ;;
+    data-import/*)                    fail "禁止提交数据导入目录（原始取数文件）: $f"; continue ;;
+    *.csv)                            fail "禁止提交 CSV 数据文件（原始取数）: $f"; continue ;;
   esac
 
   # 编译产物与日志
@@ -59,7 +61,7 @@ if [ "$BLOCK" -ne 0 ]; then
   echo ""
   echo "🚫 提交已阻止。"
   echo "   凭据（大模型接入参数 / MCP 接口参数 / 认证凭据）只允许保存在本地 .env，"
-  echo "   该文件已被 .gitignore 排除。真实企业明细数据同样不提交。"
+  echo "   该文件已被 .gitignore 排除。企业真实数据已获授权公开，不受此限。"
   exit 1
 fi
 
