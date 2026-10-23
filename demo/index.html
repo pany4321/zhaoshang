@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <title>招商企业服务与智慧监管平台</title>
-  <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="stylesheet" href="assets/css/style.css?v=5.1.11" />
   <script>
     /* 登录门禁：未登录时立即隐藏主应用，避免登录页渲染前闪现主界面 */
     try { if (!localStorage.getItem('zs_token')) document.documentElement.classList.add('logged-out'); } catch (e) {}
@@ -229,11 +229,12 @@
   <script src="assets/vendor/jspdf.umd.min.js"></script>
   <script src="assets/vendor/jspdf.plugin.autotable.min.js"></script>
   <!-- 中文字体子集 pdf-font-zh.js 不在此静态引入：导出报告时由 profile.js 按需懒加载 -->
-  <script src="assets/data/mock.js"></script>
+  <script src="assets/data/mock.js?v=5.1.11"></script>
   <!-- 真实企业数据集（由 tools/gen_demo_real_data.mjs 生成，与全栈版同源；
        含真实企业名称/信用代码/财务，已 gitignore，仅本地/内网部署存在。
        缺失时自动回落 mock.js 内置 120 家模拟数据，页面不报错。 -->
-  <script src="assets/data/real-data.js"></script>
+  <!-- 数据/样式变更后必须递增下面的 ?v=（Cloudflare 按 immutable 缓存一年，改内容不改 URL 不生效） -->
+  <script src="assets/data/real-data.js?v=5.1.11"></script>
   <script src="assets/js/common/utils.js"></script>
   <script src="assets/js/common/state.js"></script>
   <script src="assets/js/common/components.js"></script>
