@@ -214,12 +214,11 @@
     var selTaxWan = list.reduce(function(s,e){return s + e.overview.taxWan;},0);
     var selEmp = list.reduce(function(s,e){return s + e.overview.employees;},0);
     var selRisk = list.filter(function(e){return e.riskLevel==='red'||e.riskLevel==='orange'||e.riskLevel==='yellow';}).length;
-    // 统计条口径与驾驶舱一致：重点企业按标签、近30天新签约按成立日期
+    // 统计条口径与驾驶舱一致：重点企业按标签、「本月新增签约」按 Project.signDate
+    // （与企业清单 signRange=month 筛选、驾驶舱「本月新增签约」卡片同一字段同一判定，
+    //   保证卡片数字 = 点筛选后的列表条数；未签约企业不计入）
     var selKey = list.filter(function(e){return (e.tags||[]).indexOf('重点招商企业') >= 0;}).length;
-    var selNew = list.filter(function(e){
-      var s = String(e.found || '');
-      return s.length >= 7 && Number(s.slice(0,4)) === nowY && Number(s.slice(5,7)) === nowM;
-    }).length;
+    var selNew = list.filter(function(e){ return foundMatch(e, 'month'); }).length;
     var selPerf = list.length > 0 ? Math.round(list.reduce(function(s,e){return s + e.status.performRate;},0) / list.length) : 0;
     var selReveStr = selRevWan >= 10000 ? (selRevWan / 10000).toFixed(1) + '亿元' : selRevWan.toFixed(0) + '万元';
     var selTaxStr = selTaxWan >= 10000 ? (selTaxWan / 10000).toFixed(2) + '亿元' : selTaxWan.toFixed(0) + '万元';
@@ -244,7 +243,7 @@
         '<div class="os-divider"></div>' +
         osItem('重点招商企业', selKey, '家') +
         '<div class="os-divider"></div>' +
-        osItem('近30天新成立', selNew, '家', '#8B5CF6') +
+        osItem('本月新增签约', selNew, '家', '#8B5CF6') +
         '<div class="os-divider"></div>' +
         osItem('平均履约率', selPerf, '%', '#06B6D4') +
       '</div>';
