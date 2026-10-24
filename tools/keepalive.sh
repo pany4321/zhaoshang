@@ -35,20 +35,35 @@ offload_link /root/.npm   "$WS/.offload/npm"
 # 只清 1 天前的临时文件，避免误删正在写的 runc / 浏览器文件
 find /tmp -maxdepth 1 -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 
-# ── DIY 静态站点守护（published-sites，每轮静默执行）──────────────────
-# xiatang-site-runner 托管静态站 + diy 隧道。容器重建 / 进程被杀后需重新拉起，
-# 否则 demo.diy.xiatang.com.cn 会 404 no binding。静默自愈，不改变本脚本输出。
+# ── DIY 站点守护（published-sites，每轮静默执行）──────────────────
+# xiatang-site-runner 托管各站点的 diy 隧道。容器重建 / 进程被杀后需重新拉起，
+# 否则 {prefix}.diy.xiatang.com.cn 会 404 no binding。静默自愈，不改变本脚本输出。
+# 判据（勿改回固定端口）：runner 进程存活；且对每个 desired: running 的站点，
+# 只要其端口已就绪就必须有对应隧道。站点清单由 yaml 驱动，增删站点无需改本脚本。
 SITES="$WS/published-sites"
 if [ -d "$SITES" ]; then
-  PORT=$(grep -m1 '^port:' "$SITES/demo.yaml" 2>/dev/null | awk '{print $2}')
-  PORT=${PORT:-5445}
-  if ! curl -sf -m 4 "http://127.0.0.1:$PORT/" >/dev/null 2>&1 \
-     || ! pgrep -f "xiatang-site-runner run --sites-dir $SITES" >/dev/null 2>&1; then
+  NEED=0
+  pgrep -f "xiatang-site-runner run --sites-dir $SITES" >/dev/null 2>&1 || NEED=1
+  if [ "$NEED" = "0" ]; then
+    for f in "$SITES"/*.yaml; do
+      [ -f "$f" ] || continue
+      grep -q '^desired: running' "$f" 2>/dev/null || continue
+      SLUG=$(grep -m1 '^slug:' "$f" | awk '{print $2}')
+      PORT=$(grep -m1 '^port:' "$f" | awk '{print $2}')
+      [ -n "$SLUG" ] && [ -n "$PORT" ] || continue
+      # 端口就绪（静态站 / 或 API 站）却无隧道 → 需要重启 runner 重建隧道
+      if curl -sf -m 3 "http://127.0.0.1:$PORT/" >/dev/null 2>&1 \
+         || curl -sf -m 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
+        pgrep -f "diy_tunnel_client.*--prefix $SLUG" >/dev/null 2>&1 || { NEED=1; break; }
+      fi
+    done
+  fi
+  if [ "$NEED" = "1" ]; then
     pkill -f "xiatang-site-runner run --sites-dir $SITES" 2>/dev/null
-    pkill -f "diy_tunnel_client-linux-amd64 --prefix demo" 2>/dev/null
+    pkill -f "diy_tunnel_client-linux-amd64 --prefix" 2>/dev/null
     sleep 1
     setsid nohup xiatang-site-runner run --sites-dir "$SITES" >> "$WS/site-runner.log" 2>&1 &
-    echo "$(date '+%Y-%m-%d %H:%M:%S') DIY 站点中断 → 已重启 site-runner（端口 $PORT）" >> "$LOG"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') DIY 站点中断 → 已重启 site-runner" >> "$LOG"
   fi
 fi
 

@@ -5,6 +5,48 @@
 
 ---
 
+## v5.1.13 — 2026-10-24 · 全栈版发布到 zs.diy.xiatang.com.cn（静态站下线）
+
+### 一、发布形态变更
+
+- **下线** v5.1.12 的静态 demo 站：`published-sites/demo.yaml` 置 `desired: stopped`，
+  `demo.diy.xiatang.com.cn` 停止服务（清单保留，改一行即可恢复）。
+- **上线**全栈版（Fastify 单体：前端静态资源 + `/api` 同端口）：
+  **https://zs.diy.xiatang.com.cn**
+  - 新增 `published-sites/zs.yaml`（`runtime: npm`，port 5443，prefix `zs`）
+  - **解耦设计**：runner 只负责 diy 隧道，不重复启动后端。
+    占位进程不占端口，`port` 指向已被 node 监听的 5443。
+    后端与 Cloudflare Named Tunnel 仍由 `restart.sh` + keepalive 管理，
+    同一套进程同时服务两个域名：
+    `zs.195656.xyz`（cloudflared）与 `zs.diy.xiatang.com.cn`（diy 隧道）。
+    若让 runner 再起一份 node 会与 `restart.sh` 争抢 5443，导致 EADDRINUSE 与反复重启。
+
+### 二、修掉 keepalive 的两个真实缺陷（均实测复现）
+
+1. **判据绑死 demo:5445**：demo 下线后该端口不再监听，判据恒为真 →
+   **每 4 分钟误重启一次 runner**。改为遍历 `published-sites/*.yaml` 中
+   `desired: running` 的条目，逐个校验「端口就绪则必须有对应隧道」，增删站点无需改脚本。
+2. **`pgrep -f` 连续串匹配失败**：隧道真实命令行是
+   `diy_tunnel_client-linux-amd64 --server HOST --prefix SLUG`，`--server` 插在中间，
+   原 pattern `diy_tunnel_client-linux-amd64 --prefix zs` 永远匹配不上 →
+   同样表现为每轮都重启。改用正则 `diy_tunnel_client.*--prefix $SLUG`。
+
+> 这两处叠加的后果是每 4 分钟重建一次隧道，站点间歇性 502，且事件日志被刷屏。
+
+### 三、验证
+
+| 项 | 结果 |
+|---|---|
+| 公网 `/api/health` | 200（28 ms） |
+| 公网首页 | 200（789 B，Vite 壳） |
+| 静态资源 | 6/6 全 200（echarts 668 KB、vue 95 KB、engine/style.css 107 KB） |
+| 登录 + bootstrap | 正常，88 企业 / 67 风险 / 78 任务 / 推导值 0 / 营收 91.75 亿 / 纳税 6.80 亿 |
+| 浏览器渲染 | 驾驶舱正常，**JS 报错 0** |
+| 保活稳定性 | 连跑 3 次 PID 不变、日志无新增 |
+| 自愈 | kill 隧道后公网 502 → 跑 keepalive → 隧道重建、公网 200 |
+
+---
+
 ## v5.1.12 — 2026-10-24 · demo 站点发布到 diy.xiatang.com.cn + 区县分布勘误
 
 ### 一、发布（新增能力）
