@@ -213,7 +213,9 @@
     var selRevWan = list.reduce(function(s,e){return s + e.overview.revenueWan;},0);
     var selTaxWan = list.reduce(function(s,e){return s + e.overview.taxWan;},0);
     var selEmp = list.reduce(function(s,e){return s + e.overview.employees;},0);
-    var selRisk = list.filter(function(e){return e.riskLevel==='red'||e.riskLevel==='orange'||e.riskLevel==='yellow';}).length;
+    // 风险企业口径与招商驾驶舱严格一致：红/橙（重大/较高）两档，不含黄档
+    // （驾驶舱 dashboard.js 同口径；多算 yellow 会导致「卡片数字 ≠ 下钻后列表条数」）
+    var selRisk = list.filter(function(e){return e.riskLevel==='red'||e.riskLevel==='orange';}).length;
     // 统计条口径与驾驶舱一致：重点企业按标签、「本月新增签约」按 Project.signDate
     // （与企业清单 signRange=month 筛选、驾驶舱「本月新增签约」卡片同一字段同一判定，
     //   保证卡片数字 = 点筛选后的列表条数；未签约企业不计入）
