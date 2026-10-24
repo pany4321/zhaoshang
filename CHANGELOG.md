@@ -5,6 +5,46 @@
 
 ---
 
+## v5.1.16 — 2026-10-24 · 重新发布（补 ENGINE_VER，使 bc40d15 真正到达用户）
+
+### 一、问题
+
+`bc40d15`（22:12，企业概况统计条「近30天新成立」→「本月新增签约」）只改了源文件，
+**没有升 `ENGINE_VER`**。而 `engine/pages/*.js` 是通过 `withVer()` 以
+`?v=ENGINE_VER` 加载的——版本号不变，老用户浏览器与 Cloudflare 边缘缓存都会继续命中旧文件，
+**表现为「发布成功但用户看到的还是旧页面」**。
+
+同时线上产物构建于 22:08，早于该提交，连服务端产物都是旧的。
+
+### 二、改动
+
+- `web/src/engine/engine.ts`：`ENGINE_VER` `20261023d` → `20261024a`
+- `web/index.html`：`style.css?v=20261021c` → `?v=20261024a`
+  （Cloudflare 的 Browser Cache TTL 会覆盖源站 Cache-Control，改响应头无效，只能改 URL）
+- 重新 `npm run build:web`：vite 构建 + publish + 预压缩（5527KB → 1589KB，省 71.2%）
+
+### 三、验证（端到端，非只看 200）
+
+| 项 | 结果 |
+|---|---|
+| 产物新入口 | `/assets/index-CgucEykE.js`（hash 已变） |
+| 浏览器实际加载 | `engine/pages/enterprise.js?v=20261024a`、`style.css?v=20261024a` |
+| 页面文案 | 「本月新增签约」×1，「近30天新成立」×0 |
+| 新逻辑是否在产物中 | `server/public/engine/pages/enterprise.js` 命中 3 处，旧文案 0 处 |
+| `verify-site.sh` 六项 | ⓿ 意图 / ① 本地 / ② proxy / ③ 公网 / ④ 资源 6 项 / ⑤ 依赖探针 —— 全绿 |
+| `npm test` | 12 脚本全绿（含接口回归） |
+
+**不需要重启后端**：`@fastify/static` 实时读盘，静态资源替换即生效；实测重启前已可访问新版。
+
+### 四、经验
+
+「构建成功 + 公网 200」不足以证明发布生效。前端资源带版本号时，
+**必须验证「浏览器实际请求的 URL 里版本号是新的」**，并按页面文案做一次内容级核对。
+本仓库的版本号来源是 `web/src/engine/engine.ts` 的 `ENGINE_VER`，
+改任何 `engine/**` 资源都必须同步递增它（已写入技能 `local-app-publish` 的发布完成定义）。
+
+---
+
 ## v5.1.15 — 2026-10-24 · 新增发布探针端点 /__health
 
 ### 一、背景
