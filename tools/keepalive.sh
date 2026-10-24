@@ -35,6 +35,23 @@ offload_link /root/.npm   "$WS/.offload/npm"
 # 只清 1 天前的临时文件，避免误删正在写的 runc / 浏览器文件
 find /tmp -maxdepth 1 -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 
+# ── DIY 静态站点守护（published-sites，每轮静默执行）──────────────────
+# xiatang-site-runner 托管静态站 + diy 隧道。容器重建 / 进程被杀后需重新拉起，
+# 否则 demo.diy.xiatang.com.cn 会 404 no binding。静默自愈，不改变本脚本输出。
+SITES="$WS/published-sites"
+if [ -d "$SITES" ]; then
+  PORT=$(grep -m1 '^port:' "$SITES/demo.yaml" 2>/dev/null | awk '{print $2}')
+  PORT=${PORT:-5445}
+  if ! curl -sf -m 4 "http://127.0.0.1:$PORT/" >/dev/null 2>&1 \
+     || ! pgrep -f "xiatang-site-runner run --sites-dir $SITES" >/dev/null 2>&1; then
+    pkill -f "xiatang-site-runner run --sites-dir $SITES" 2>/dev/null
+    pkill -f "diy_tunnel_client-linux-amd64 --prefix demo" 2>/dev/null
+    sleep 1
+    setsid nohup xiatang-site-runner run --sites-dir "$SITES" >> "$WS/site-runner.log" 2>&1 &
+    echo "$(date '+%Y-%m-%d %H:%M:%S') DIY 站点中断 → 已重启 site-runner（端口 $PORT）" >> "$LOG"
+  fi
+fi
+
 # 健康 → 只回 ok（一行，最省 token）
 if curl -sf -m 5 http://127.0.0.1:5443/api/health > /dev/null 2>&1; then
   echo ok
