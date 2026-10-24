@@ -93,3 +93,8 @@ tunnel_token
 cf.log
 cf-named.log
 *.cfargotunnel.com
+
+# 临时文件（勿入库）
+.git_msg.txt
+.tmp_*.py
+.tmp_*

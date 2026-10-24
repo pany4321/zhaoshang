@@ -13,6 +13,8 @@ import { startTunnelGuard, currentPublicUrl } from './services/tunnelGuard.js'
 import { startBackupScheduler } from './services/backupScheduler.js'
 import { startDailySync } from './services/dailySync.js'
 import { runSelfCheck, printSelfCheck, getLastReport } from './services/selfCheck.js'
+import { llmConfigured } from './services/llm.js'
+import { toolsAvailable } from './services/dorisTools.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -179,6 +181,32 @@ app.register(searchRoutes,     { prefix: '/api/search' })
 
 // 健康检查
 app.get('/api/health', async () => ({ ok: true, ts: Date.now() }))
+
+// 探针端点（发布验证契约，见技能 local-app-publish §8）：
+// 返回各依赖的连通状态，供 verify-site.sh / 外部监控判断「应用真的能用」。
+// 字段语义：deps 是可用性，probed 标注该值来自真探(live)还是仅配置(config)。
+app.get('/__health', async () => {
+  const deps: Record<string, boolean> = {}
+  const probed: Record<string, string> = {}
+
+  // 数据库：真探（一次 SELECT 1，成本可接受）
+  try {
+    await prisma.$queryRaw`SELECT 1`
+    deps.db = true
+  } catch {
+    deps.db = false
+  }
+  probed.db = 'live'
+
+  // 大模型网关 / 数据仓库 MCP：此处只检查配置是否就位；
+  // 真实调用成本高（token / 查询），放到发布验证阶段由 verify-site.sh 单独实证。
+  deps.llm = llmConfigured()
+  probed.llm = 'config'
+  deps.mcp = toolsAvailable()
+  probed.mcp = 'config'
+
+  return { ok: deps.db && deps.llm && deps.mcp, deps, probed, ts: Date.now() }
+})
 
 // 当前公网访问地址（排查用；需登录）
 app.get('/api/system/tunnel', async () => ({
