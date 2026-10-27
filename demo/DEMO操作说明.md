@@ -240,7 +240,7 @@ demo/
 │   │   ├── app.js             # 入口：路由、页面标题、图表生命周期、全局绑定、演示模式
 │   │   ├── common/            # 公共模块：login.js（登录门禁）/ utils.js / state.js / components.js
 │   │   └── pages/             # 9 个页面模块（dashboard…aidemo，与左侧菜单一一对应）
-│   ├── data/mock.js           # 模拟数据层 V4（120 家企业、67 条风险事件、24 条政策等全量模拟数据）
+│   ├── data/mock.js           # 模拟数据层 V4（120 家企业、61 条风险事件、24 条政策等全量模拟数据）
 │   └── vendor/                # 本地化依赖：echarts.min.js / jspdf.umd.min.js /
 │                              #   jspdf.plugin.autotable.min.js（文字版 PDF 导出）
 │                              #   pdf-font-zh.js 由 tools/make_pdf_font.py 生成（导出时懒加载）

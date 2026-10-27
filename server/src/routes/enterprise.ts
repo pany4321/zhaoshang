@@ -213,7 +213,7 @@ export default async function (fastify: FastifyInstance) {
     const monthlyBase = ent.revenue / 12
     const revenue = months.map(() => Math.round(monthlyBase * (0.8 + rand() * 0.4)))
     const tax = revenue.map(r => Math.round(r * (0.08 + rand() * 0.07)))
-    const employees = months.map(() => Math.round(ent.employees * (0.9 + rand() * 0.2)))
+    const employees = months.map(() => Math.round((ent.employees ?? 0) * (0.9 + rand() * 0.2)))
 
     return ok({ months, revenue, tax, employees, yearlyRevenue: ent.revenue, yearlyTax: ent.tax, yearlyEmployees: ent.employees })
   })

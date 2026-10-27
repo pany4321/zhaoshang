@@ -111,9 +111,10 @@ model Enterprise {
 
   // 核心指标
   revenue     Float    @default(0) // 年营收（万元）
-  tax         Float?   @default(0) // 纳税（万元）；null = 年报未公示
-  investment  Float    @default(0) // 固投（万元）
-  employees   Int?     @default(0) // 员工数（年报从业人数）；null = 年报「选择不公示」
+  tax         Float?   // 纳税（万元）；NULL = 年报未公示。★ 不可加 @default(0)：
+                       // 否则新建企业漏传该字段会落成"0 万元"，把"未公示"伪造成"真实零纳税"
+  investment  Float    @default(0) // 固投（万元）——推导值，非真实数据
+  employees   Int?     // 员工数（年报从业人数）；NULL = 年报「选择不公示」。同 tax，不加默认值
   landMu      Float    @default(0) // 用地（亩）
   performRate Int      @default(90) // 履约率 %
   commitRate  Int?     // 承诺完成率 %
@@ -140,9 +141,10 @@ model Enterprise {
   bidCount       Int @default(0) // 招投标参与数
 
   // ===== 真实财务数据（来源：工商年报公示，仅公示企业有值）=====
-  assetTotal Float?  @default(0) // 资产总额（万元）；null = 年报未公示
-  netProfit  Float?  @default(0) // 净利润（万元，可为负）；null = 年报未公示
+  assetTotal Float?  // 资产总额（万元）；NULL = 年报未公示。同 tax，不加默认值
+  netProfit  Float?  // 净利润（万元，可为负）；NULL = 年报未公示。同 tax，不加默认值
   finYear    String? // 财务数据所属年份，null = 该企业未公示财务数据
+  empYear    String? // 从业人数所属年报年份，null = 未公示或无记录（最老可能为 2015）
 
   // ===== 真实国标行业分类（来源 company_industry，2017 国民经济行业分类，官方公示）=====
   // 用途：与 industryId（招商视角的 12 个产业分类，属规则推导）并存。

@@ -5,6 +5,11 @@ import { llmChat, llmConfigured, llmChatWithTools, AGENT_SYSTEM } from '../servi
 import { DORIS_TOOLS, runDorisTool, toolsAvailable } from '../services/dorisTools.js'
 import { AI_TOOLS, executeTool } from '../services/aiTools.js'
 
+/** 未公示字段（null）在提示词里显式标注，避免拼成 "纳税：null 万元" 被模型当成数值误读。
+ *  2026-10-26 起 tax / employees / assetTotal / netProfit 允许 null，语义为"年报未公示"。 */
+const pub = (v: unknown, unit: string): string =>
+  v === null || v === undefined ? '（未公示）' : `${v} ${unit}`
+
 // 四个 AI 智能体的预脚本回复（与前端保持一致）
 const SCRIPTED_REPLIES: Record<string, Record<string, string>> = {
   insight: {
@@ -86,7 +91,7 @@ async function buildDataContext(agentType: string): Promise<string> {
     d.n++; d.rev += e.revenue
     byDist.set(dk, d)
     lv[e.riskLevel] = (lv[e.riskLevel] || 0) + 1
-    totalRev += e.revenue; totalTax += e.tax
+    totalRev += e.revenue; totalTax += (e.tax ?? 0)   // tax 为 null = 年报未公示，合计仅含已公示企业
     if (e.isKey) keyN++
   }
 
@@ -108,7 +113,7 @@ async function buildDataContext(agentType: string): Promise<string> {
         const ind = indName.get(e.industryId || '') || (e.industryId ? e.industryId : '未分类')
         const lvl = ({ red: '红', orange: '橙', yellow: '黄', blue: '蓝' } as Record<string, string>)[e.riskLevel] || e.riskLevel
         const key = e.isKey ? '重点' : ''
-        return `${e.name}｜${dist}｜${ind}｜${lvl}${e.riskScore}分｜营收${Math.round(e.revenue)}万｜纳税${Math.round(e.tax)}万｜${key}`
+        return `${e.name}｜${dist}｜${ind}｜${lvl}${e.riskScore}分｜营收${Math.round(e.revenue)}万｜纳税${e.tax == null ? '未公示' : Math.round(e.tax) + '万'}｜${key}`
       })
       .join('\n')
     return [
@@ -387,7 +392,7 @@ export default async function (fastify: FastifyInstance) {
       `统一社会信用代码：${e.creditCode}`,
       `所属区县：${e.district?.name || '—'}；所属行业：${e.industry?.name || '—'}`,
       `成立日期：${e.found}；注册资本：${e.regCapital}；规模：${e.scale}；经营状态：${e.bizStatus}`,
-      `年营收：${e.revenue} 万元；纳税：${e.tax} 万元；固定资产投入：${e.investment} 万元；员工：${e.employees} 人；用地：${e.landMu} 亩`,
+      `年营收：${pub(e.revenue, '万元')}；纳税：${pub(e.tax, '万元')}；固定资产投入：${pub(e.investment, '万元')}；员工：${pub(e.employees, '人')}；用地：${pub(e.landMu, '亩')}`,
       `履约率：${e.performRate}%`,
       `八维风险分（0-100，越高风险越大）：经营 ${e.riskOp}、财务 ${e.riskFin}、司法 ${e.riskLegal}、信用 ${e.riskCredit}、招投标 ${e.riskTender}、税务 ${e.riskTax}、招商履约 ${e.riskCommit}、知识产权 ${e.riskIp}`,
       `综合风险指数：${e.riskScore}（等级 ${e.riskLevel}）`,
@@ -485,7 +490,7 @@ export default async function (fastify: FastifyInstance) {
       `企业名称：${e.name}`,
       `所属区县：${e.district?.name || '—'}；所属行业：${e.industry?.name || '—'}`,
       `成立日期：${e.found}；注册资本：${e.regCapital}；规模：${e.scale}；经营状态：${e.bizStatus}`,
-      `年营收：${e.revenue} 万元；纳税：${e.tax} 万元；固定资产投入：${e.investment} 万元；员工：${e.employees} 人`,
+      `年营收：${pub(e.revenue, '万元')}；纳税：${pub(e.tax, '万元')}；固定资产投入：${pub(e.investment, '万元')}；员工：${pub(e.employees, '人')}`,
       `履约率：${e.performRate}%`,
       '八维风险分（0-100，数值越高风险越大）：',
       ...DIMS.map((d) => `  ${d.name}（权重${d.weight}%）：${d.v}`),
@@ -716,7 +721,7 @@ export default async function (fastify: FastifyInstance) {
       '候选企业（已按规则粗筛）：',
       ...candidates.map(
         (c, i) =>
-          `${i + 1}. id=${c.e.id}｜${c.e.name}｜招商产业：${c.e.industry?.name || '—'}｜国标行业：${c.e.nationalIndustry || '暂无'}｜${c.e.scale}｜营收 ${c.e.revenue} 万元｜风险等级 ${c.e.riskLevel}｜员工 ${c.e.employees} 人${c.e.isKey ? '｜重点企业' : ''}`
+          `${i + 1}. id=${c.e.id}｜${c.e.name}｜招商产业：${c.e.industry?.name || '—'}｜国标行业：${c.e.nationalIndustry || '暂无'}｜${c.e.scale}｜营收 ${pub(c.e.revenue, '万元')}｜风险等级 ${c.e.riskLevel}｜员工 ${pub(c.e.employees, '人')}${c.e.isKey ? '｜重点企业' : ''}`
       ),
     ].join('\n')
 

@@ -5,6 +5,94 @@
 
 ---
 
+## v5.1.19 — 2026-10-26 · 审核修复（事件上限回归 / AI 提示词 null / 构建链失效）
+
+对 v5.1.18 做的批判性复审，修掉 6 处——其中 2 处是 v5.1.18 引入或暴露的真缺陷。
+
+### 一、v5.1.18 引入的回归
+
+**① 风险事件「单企业最多 2 条」上限被我打破**
+
+新增的「维度保底」阶段漏了原有的数量约束。高分企业在多个维度同时排名靠前，
+被一次性塞进 6~8 条事件：
+
+| 企业 | 事件数 |
+|---|---|
+| 甘肃宁州华凯能源有限公司 | **6 条**（经营/财务/司法/信用/招商履约/知识产权） |
+| 甘肃庆州城乡一体化项目管理有限公司 | 5 条 |
+| 甘肃铭航建设工程有限公司 | 5 条 |
+
+修复：阶段一与阶段二统一 `MAX_PER_ENT = 2`。修后分布 = 33 家各 2 条 + 1 家 1 条 = 67 条，
+且覆盖企业数由 27 家提升到 **34 家**（比原实现更散、更合理）。
+
+### 二、暴露出的既有缺陷
+
+**② AI 提示词把未公示拼成 "null 万元"**
+
+`server/src/routes/ai.ts` 三处上下文直接模板插值 `${e.tax}` / `${e.employees}`。
+字段可空后会生成"纳税：null 万元；员工：null 人"喂给 DeepSeek，可能让模型
+把 null 当数值推理出错误结论。`services/aiTools.ts` 两处工具返回值同样问题。
+
+修复：新增 `pub(v, unit)` 帮助函数，null 渲染为「（未公示）」；工具返回 `taxWan: '未公示'`。
+
+**③ `npm run build` 长期编不出来，dist 停留在 10-21**
+
+`tsconfig.json` 的 `rootDir: "src"` 与 `include: ["src/**/*.ts"]` 无法容纳被
+`src/index.ts` 引用的 `prisma/seed-data.ts`，一直报 TS6059；加上 5 处
+`Record<string, any>` 与 Prisma create input 的类型不匹配。结果是 **dist 从 10-21 起
+就没更新过**，所有 `server/src` 改动都没进运行中的服务。
+
+修复：
+- `tsconfig.json`：`rootDir` → `"."`，`include` 增加 `prisma/seed-data.ts`
+- 5 处动态对象改 `as any`（fixtures 来自 JSON，seed 前已由校验脚本把关）
+- 输出结构变为 `dist/src/index.js`，同步更新 `package.json` 的 `start` 与 `restart.sh`（2 处）
+
+> **部署注意**：`restart.sh` 只重启不构建。改过 `server/src/**` 必须先 `cd server && npm run build`，
+> 否则服务跑的还是旧 dist。这条已写入 CHANGELOG 作为流程约束。
+
+**④ seed 混用标量外键与关系字段**
+
+`data: { ...entData, shareholders: { create } }` 同时含 `districtId`（标量）与
+`shareholders`（关系），Prisma 只允许其一，报 `Unknown argument districtId`。
+
+修复：改为 `district: { connect: { id } }` / `industry: { connect: { id } }`。
+
+### 三、口径透明性
+
+**⑤ 驾驶舱合计未说明"不含未公示"**
+
+「纳税总额」「带动就业」是已公示企业之和，界面无任何说明，会被误读为全量。
+
+修复：卡片文案追加「（不含 1 家未公示）」「（不含 22 家未公示）」，按实际家数动态生成。
+
+**⑥ 从业人数缺数据年份**
+
+15 家用的是 2022 年及更早的数据（最早 2015 年），界面只显示"14 人"无从判断新旧。
+
+修复：新增 `empYear` 字段（生成脚本 → Prisma schema → adapter → 界面），
+KPI 标签显示为「员工数（2015年报）」。
+
+### 四、验证
+
+| 项 | 结果 |
+|---|---|
+| `npm run build`（tsc） | **首次通过**，产出 `dist/src/index.js` + `dist/prisma/seed-data.js` |
+| 事件数上限 | 33 家 × 2 条 + 1 家 × 1 条 = 67 ✅ 无超限 |
+| 八维覆盖 | 财务22/税务13/经营10/司法10/信用3/招投标3/招商履约3/知产3 = 67 ✅ |
+| `empYear` | 66/88，与 `employees` 非空一一对应 ✅ |
+| 构建产物校验 | `dist` 内 ai.js / aiTools.js / enterprise.js 均含未公示处理 ✅ |
+| `npm test` | 12 脚本 + 接口链路 22 项全通过 ✅ |
+| 服务 | `dist/src/index.js` 启动，健康检查 200 ✅ |
+
+### 五、已知项
+
+- 事件覆盖从 27 家扩到 34 家，`riskEvents` 的 enterpriseId 分布随之变化（条数不变）；
+  关联任务经 `check_invariants` 校验通过
+- 15 家从业人数为 2022 年及更早数据，界面已标年份
+- 固投/占地/履约率/承诺完成率/亩均税收仍为推导值，界面不标注，界定见数据口径说明第四章
+
+---
+
 ## v5.1.18 — 2026-10-26 · 未公示字段置空 · 从业人数接真实值 · 风险事件补全八维
 
 ### 一、三个问题

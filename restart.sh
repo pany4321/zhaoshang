@@ -11,7 +11,7 @@ TOKEN_FILE=$BASE/.cloudflared/tunnel_token
 NAMED_LOG=$BASE/cf-named.log
 
 echo "== 停止旧进程 =="
-for pid in $(pgrep -f "node --env-file=.env dist/index.js" 2>/dev/null); do
+for pid in $(pgrep -f "node --env-file=.env dist/src/index.js" 2>/dev/null); do
   kill -TERM "$pid" 2>/dev/null && echo "  已停止 node PID $pid"
 done
 for pid in $(pgrep -x cloudflared 2>/dev/null); do
@@ -21,7 +21,7 @@ sleep 2
 
 echo "== 启动后端（端口 $PORT）=="
 cd "$APP/server" || exit 1
-nohup node --env-file=.env dist/index.js > "$BASE/server.log" 2>&1 &
+nohup node --env-file=.env dist/src/index.js > "$BASE/server.log" 2>&1 &
 echo "  server PID $!"
 
 for i in $(seq 1 15); do

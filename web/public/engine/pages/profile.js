@@ -474,7 +474,7 @@
             '<div class="row" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">' +
               kpi4('总营收', e.overview.revenue) +
               kpi4('纳税', e.overview.tax) +
-              kpi4('员工数', e.overview.employees == null ? '未公示' : e.overview.employees.toLocaleString() + '人') +
+              kpi4('员工数' + (e.empYear ? '（' + e.empYear + '年报）' : ''), e.overview.employees == null ? '未公示' : e.overview.employees.toLocaleString() + '人') +
               kpi4('履约率', e.status.performRate + '%', perfColor) +
             '</div>' +
             '<div style="font-weight:600;color:#0F172A;margin-bottom:8px;font-size:14px;">招商承诺完成情况</div>' +

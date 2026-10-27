@@ -136,9 +136,17 @@ export async function seedDemoData(prisma: PrismaClient) {
 
   // 3. 企业 + 股东
   for (const ent of fixtures.enterprises) {
-    const { shareholders, records, ...entData } = ent
+    const { shareholders, records, districtId, industryId, ...entData } = ent
     await prisma.enterprise.create({
-      data: { ...entData, shareholders: { create: shareholders } },
+      data: {
+        ...entData,
+        // ★ 外键必须走 relation connect：Prisma 的 EnterpriseCreateInput 不允许
+        //   标量外键（districtId/industryId）与关系字段（shareholders.create）混用，
+        //   混用会报 `Unknown argument districtId`（2026-10-26 修）
+        ...(districtId ? { district: { connect: { id: districtId } } } : {}),
+        ...(industryId ? { industry: { connect: { id: industryId } } } : {}),
+        shareholders: { create: shareholders },
+      } as any,
     })
   }
   console.log(`  ✓ 企业 ${fixtures.enterprises.length} 家`)
@@ -200,19 +208,19 @@ export async function seedDemoData(prisma: PrismaClient) {
   // 3.5 司法案件明细（真实案号/案由/审判程序）
   const jcs = fixtures.judicialCases || []
   for (const jc of jcs) {
-    await prisma.judicialCase.create({ data: jc })
+    await prisma.judicialCase.create({ data: jc as any })
   }
   console.log(`  ✓ 司法案件明细 ${jcs.length} 条`)
 
   // 4. 风险事件
   for (const ev of fixtures.riskEvents) {
-    await prisma.riskEvent.create({ data: ev })
+    await prisma.riskEvent.create({ data: ev as any })   // fixtures 来自 JSON，字段已由校验脚本把关
   }
   console.log(`  ✓ 风险事件 ${fixtures.riskEvents.length} 条`)
 
   // 5. 招商项目
   for (const proj of fixtures.projects) {
-    await prisma.project.create({ data: proj })
+    await prisma.project.create({ data: proj as any })
   }
   console.log(`  ✓ 招商项目 ${fixtures.projects.length} 个`)
 
@@ -252,7 +260,7 @@ export async function seedDemoData(prisma: PrismaClient) {
 
   // 7. 政策
   for (const p of fixtures.policies) {
-    await prisma.policy.create({ data: p })
+    await prisma.policy.create({ data: p as any })
   }
   console.log(`  ✓ 政策 ${fixtures.policies.length} 条`)
 

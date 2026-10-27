@@ -57,13 +57,18 @@
     var totalEnts = ents.length;
     var keyEnts = ents.filter(function(e){return e.tags && e.tags.indexOf('重点招商企业')>=0;}).length;
     var revWan = ents.reduce(function(s,e){return s + e.overview.revenueWan;},0);
-    var taxWan = ents.reduce(function(s,e){return s + e.overview.taxWan;},0);
+    // taxWan / employees 可能为 null（年报「未公示」）——求和按 0 计，
+    // 但卡片文案必须标注"不含 N 家未公示"，否则会被误读为全量口径
+    var taxWan = ents.reduce(function(s,e){return s + (e.overview.taxWan || 0);},0);
     var invWan = ents.reduce(function(s,e){return s + e.overview.investWan;},0);
-    var employ = ents.reduce(function(s,e){return s + e.overview.employees;},0);
+    var employ = ents.reduce(function(s,e){return s + (e.overview.employees || 0);},0);
+    var taxUnpub = ents.filter(function(e){return e.overview.taxWan == null;}).length;
+    var empUnpub = ents.filter(function(e){return e.overview.employees == null;}).length;
     var riskEnts = ents.filter(function(e){return e.riskLevel==='red'||e.riskLevel==='orange';}).length;
 
     var revenueStr = (revWan/10000).toFixed(1) + '亿元';
-    var taxStr = (taxWan/10000).toFixed(2) + '亿元';
+    var taxStr = (taxWan/10000).toFixed(2) + '亿元' + (taxUnpub ? '（不含' + taxUnpub + '家未公示）' : '');
+    var employStr = employ.toLocaleString() + '人' + (empUnpub ? '（不含' + empUnpub + '家未公示）' : '');
     var investStr = (invWan/10000).toFixed(1) + '亿元';
 
     // 环比（演示用：全市用 OVERVIEW，区县用略小的波动）
@@ -125,7 +130,7 @@
       // 第二行：经济贡献
       kpi('总营收', revenueStr, 'revenue') +
       kpi('固定资产投资', investStr, 'invest') +
-      kpi('带动就业', employ.toLocaleString() + '人', 'employment') +
+      kpi('带动就业', employStr, 'employment') +
       kpi('纳税总额', taxStr, 'tax') +
       kpi('亩均税收', muTax.toFixed(1) + '万元', 'tax');
 

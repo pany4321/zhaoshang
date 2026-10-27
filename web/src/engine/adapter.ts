@@ -21,6 +21,7 @@ export interface RawEnterprise {
   patentCount?: number; inventionCount?: number; trademarkCount?: number;
   judicialCount?: number; zhixingCount?: number; shixinCount?: number; bidCount?: number;
   assetTotal?: number | null; netProfit?: number | null; finYear?: string | null;
+  empYear?: string | null;   // 从业人数所属年报年份（最老可能为 2015，需可追溯）
   // 真实国标行业（company_industry，2017 国民经济行业分类，官方公示）
   // 与 industryId（招商视角 12 个产业，规则推导）并存，不可混用
   nationalIndustryL1?: string | null; nationalIndustry?: string | null; nationalIndustryL3?: string | null;
@@ -373,6 +374,8 @@ export function mapEnterprise(e: RawEnterprise, cases: RawJudicialCase[] = []): 
     assetTotal: e.assetTotal ?? null,
     netProfit: e.netProfit ?? null,
     finYear: e.finYear || null,
+    // 从业人数所属年报年份（null 表示该企业未公示从业人数或无记录）
+    empYear: e.empYear ?? null,
     // 企业档案记录（处罚/异常/出质/抵押/分支），detail 为 JSON 字符串
     records: (e.records || []).map((r: any) => ({
       id: r.id,

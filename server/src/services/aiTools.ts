@@ -109,7 +109,7 @@ async function queryEnterprises(args: Record<string, any>): Promise<string> {
       riskLevel: RISK_LABEL[e.riskLevel] || e.riskLevel,
       riskScore: e.riskScore,
       revenueWan: Math.round(e.revenue),
-      taxWan: Math.round(e.tax),
+      taxWan: e.tax == null ? '未公示' : Math.round(e.tax),   // 给 LLM 明确标注，不用 0 冒充
       scale: e.scale,
       isKey: e.isKey,
       patentCount: e.patentCount,
@@ -152,9 +152,9 @@ async function getEnterpriseDetail(args: Record<string, any>): Promise<string> {
     finance: {
       year: e.finYear,
       revenueWan: Math.round(e.revenue),
-      taxWan: Math.round(e.tax),
-      assetTotalWan: Math.round(e.assetTotal),
-      netProfitWan: Math.round(e.netProfit),
+      taxWan: e.tax == null ? '未公示' : Math.round(e.tax),
+      assetTotalWan: e.assetTotal == null ? '未公示' : Math.round(e.assetTotal),
+      netProfitWan: e.netProfit == null ? '未公示' : Math.round(e.netProfit),
       source: e.finYear ? '工商年报公示值' : '无公开年报，系统按注册资本推算',
     },
     risk: {

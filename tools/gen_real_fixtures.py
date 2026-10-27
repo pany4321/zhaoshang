@@ -616,9 +616,11 @@ def main():
 
         # 年报从业人数（真实）优先；年报「选择不公示」或无记录 → 置空显示「未公示」。
         # 推导值实测把就业规模平均高估约 10 倍，故不回落到 build_ops()。
+        # empYear 记录该人数所属的年报年份 —— 样本中有人最新可用的是 2015 年数据，必须可追溯。
         _emp = employees_map.get(cc)
+        emp_year = None
         if _emp:
-            employees = _emp[1]
+            employees, emp_year = _emp[1], str(_emp[0])
         else:
             employees = None
             MISSING_FIELDS.setdefault('employees', []).append(name)
@@ -639,7 +641,7 @@ def main():
             'isKey': bool(cap >= 50000 or '集团' in name), 'isNew': is_new,
             'newDate': est if is_new else None,
             'revenue': revenue, 'tax': tax, 'investment': investment,
-            'employees': employees, 'landMu': land_mu,
+            'employees': employees, 'landMu': land_mu, 'empYear': emp_year,
             'performRate': perform, 'commitRate': None,
             'riskScore': 0, 'riskLevel': 'blue',
             **{KEY_MAP[k]: 0 for k in W},
@@ -718,18 +720,23 @@ def main():
             'suggestion': SUGGEST[dk],
         }
 
-    # 阶段一 —— 维度保底：每个维度先占 MIN_PER_DIM 条，取该维度分数最高的企业
+    # 阶段一 —— 维度保底：每个维度先占 MIN_PER_DIM 条，取该维度分数最高的企业。
+    # ★ 必须与阶段二一致的「单企业最多 MAX_PER_ENT 条」约束：否则高分企业在多个维度
+    #   同时排名靠前时会一次性拿到 6~8 条事件（实测曾出现单企业 6 条，破坏原有上限 2 条）。
     MIN_PER_DIM = 3
+    MAX_PER_ENT = 2
     for dk in DIMS:
-        for ent in sorted(enterprises, key=lambda e: -e[KEY_MAP[dk]])[:15]:
-            if len(events) >= len(STATUS_PLAN):
-                break
-            if sum(1 for ev in events if ev['dimension'] == dk) >= MIN_PER_DIM:
+        taken = 0
+        for ent in sorted(enterprises, key=lambda e: -e[KEY_MAP[dk]]):
+            if len(events) >= len(STATUS_PLAN) or taken >= MIN_PER_DIM:
                 break
             if (ent['id'], dk) in used:
                 continue
+            if sum(1 for ev in events if ev['enterpriseId'] == ent['id']) >= MAX_PER_ENT:
+                continue
             used.add((ent['id'], dk))
             events.append(_mk(ent, dk))
+            taken += 1
 
     # 阶段二 —— 高分优先：剩余名额按企业风险分降序填充，取该企业分数最高的未用维度
     for ent in pool:
