@@ -157,7 +157,7 @@
         case 'tax':
           return '<span class="num">' + U.esc(e.overview.tax) + '</span>';
         case 'employees':
-          return '<span class="num">' + e.overview.employees.toLocaleString() + '</span>';
+          return '<span class="num">' + (e.overview.employees == null ? '未公示' : e.overview.employees.toLocaleString()) + '</span>';
         case 'perform':
           var pc = e.status.performRate >= 80 ? '#22C55E' : e.status.performRate >= 50 ? '#F97316' : '#e03131';
           return '<span class="num" style="color:' + pc + ';font-weight:600;">' + e.status.performRate + '%</span>';
@@ -371,7 +371,7 @@
         return [e.name, e.creditCode, e.legal, e.industryName, e.districtName, e.scale,
                 (e.tags || []).join('、'),
                 e.status.credit,
-                e.overview.revenue, e.overview.tax, e.overview.employees,
+                e.overview.revenue, e.overview.tax, (e.overview.employees == null ? '未公示' : e.overview.employees),
                 e.status.performRate + '%',
                 M.LEVELS[e.riskLevel].name, e.riskScore];
       });
@@ -607,8 +607,8 @@
       ]},
       { key: 'overview', label: '经营概况', items: [
         { k: 'revenue', label: '年营收', num: true, higher: true, get: function (e) { return e.overview.revenueWan; }, fmt: function (v) { return v >= 10000 ? (v/10000).toFixed(1)+'亿元' : v+'万元'; } },
-        { k: 'tax', label: '年纳税', num: true, higher: true, get: function (e) { return e.overview.taxWan; }, fmt: function (v) { return v+'万元'; } },
-        { k: 'employees', label: '员工数', num: true, higher: true, get: function (e) { return e.overview.employees; }, fmt: function (v) { return v.toLocaleString()+'人'; } },
+        { k: 'tax', label: '年纳税', num: true, higher: true, get: function (e) { return e.overview.taxWan; }, fmt: function (v) { return v == null ? '未公示' : v+'万元'; } },
+        { k: 'employees', label: '员工数', num: true, higher: true, get: function (e) { return e.overview.employees; }, fmt: function (v) { return v == null ? '未公示' : v.toLocaleString()+'人'; } },
         { k: 'landMu', label: '用地面积', num: true, higher: true, get: function (e) { return e.landMu; }, fmt: function (v) { return v+'亩'; } },
         { k: 'profit', label: '利润', num: true, higher: true, get: function (e) { return e.overview.profit; }, fmt: function (v) { return v; } },
       ]},

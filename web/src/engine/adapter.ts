@@ -12,7 +12,7 @@ export interface RawEnterprise {
   scale: string; bizStatus: string; creditStatus: string; regCapital: string;
   // 外省招商线索企业在落地前无庆阳辖区归属（null），不得伪造区县
   districtId: string | null; industryId: string | null; isKey: boolean; isNew: boolean; newDate: string | null;
-  revenue: number; tax: number; investment: number; employees: number; landMu: number;
+  revenue: number; tax: number | null; investment: number; employees: number | null; landMu: number;
   performRate: number; commitRate: number | null;
   riskScore: number; riskLevel: string;
   riskOp: number; riskFin: number; riskLegal: number; riskCredit: number;
@@ -20,7 +20,7 @@ export interface RawEnterprise {
   // 深度数据（真实工商/司法/知产/招投标）
   patentCount?: number; inventionCount?: number; trademarkCount?: number;
   judicialCount?: number; zhixingCount?: number; shixinCount?: number; bidCount?: number;
-  assetTotal?: number; netProfit?: number; finYear?: string | null;
+  assetTotal?: number | null; netProfit?: number | null; finYear?: string | null;
   // 真实国标行业（company_industry，2017 国民经济行业分类，官方公示）
   // 与 industryId（招商视角 12 个产业，规则推导）并存，不可混用
   nationalIndustryL1?: string | null; nationalIndustry?: string | null; nationalIndustryL3?: string | null;
@@ -192,9 +192,11 @@ export function mapEnterprise(e: RawEnterprise, cases: RawJudicialCase[] = []): 
   const r = mkR('ent-' + e.id)
   const regCapitalWan = parseInt(String(e.regCapital).replace(/\D/g, ''), 10) || Math.round(e.investment * 0.6) || 500
 
-  // 税率与人均营收（用于年度/月度序列推导）
-  const taxRate = e.revenue > 0 ? Math.min(0.15, Math.max(0.02, e.tax / e.revenue)) : 0.05
-  const revPerEmp = e.employees > 0 ? e.revenue / e.employees : 60
+  // 税率与人均营收（用于年度/月度序列推导）。tax 为 null 表示年报未公示纳税额，
+  // 此处仅用于派生序列的形态估算，不构成对"纳税额"本身的宣称。
+  const taxRate = e.revenue > 0 && e.tax != null ? Math.min(0.15, Math.max(0.02, e.tax / e.revenue)) : 0.05
+  // employees 为 null 表示年报「选择不公示」从业人数
+  const revPerEmp = (e.employees ?? 0) > 0 ? e.revenue / (e.employees as number) : 60
 
   // 年度增长率（科技行业更高，稳定性由 id 保证）
   let yearGrowth = r.float(-0.03, 0.18, 3)
@@ -260,7 +262,9 @@ export function mapEnterprise(e: RawEnterprise, cases: RawJudicialCase[] = []): 
   const revenueFmt = e.revenue >= 10000
     ? (e.revenue / 10000).toFixed(1) + '亿元'
     : e.revenue + '万元'
-  const taxFmt = e.tax >= 10000 ? (e.tax / 10000).toFixed(1) + '亿元' : e.tax + '万元'
+  const taxFmt = e.tax == null
+    ? '未公示'
+    : (e.tax >= 10000 ? (e.tax / 10000).toFixed(1) + '亿元' : e.tax + '万元')
   const investFmt = e.investment >= 10000
     ? (e.investment / 10000).toFixed(1) + '亿元'
     : e.investment + '万元'
@@ -285,8 +289,8 @@ export function mapEnterprise(e: RawEnterprise, cases: RawJudicialCase[] = []): 
     { name: '注册资本', promise: regCapitalWan, actual: Math.round(regCapitalWan * r.float(0.9, 1.0, 2)), unit: '万元' },
     { name: '实际投资', promise: investTotal, actual: e.investment, unit: '万元' },
     { name: '年营收', promise: Math.round(e.revenue * 1.2), actual: e.revenue, unit: '万元' },
-    { name: '年纳税', promise: Math.round(e.revenue * taxRate * 1.1), actual: e.tax, unit: '万元' },
-    { name: '就业岗位', promise: Math.round(e.employees * 1.15), actual: e.employees, unit: '人' },
+    { name: '年纳税', promise: Math.round(e.revenue * taxRate * 1.1), actual: e.tax ?? 0, unit: '万元' },
+    { name: '就业岗位', promise: Math.round((e.employees ?? 0) * 1.15), actual: e.employees ?? 0, unit: '人' },
   ]
 
   return {
@@ -364,9 +368,10 @@ export function mapEnterprise(e: RawEnterprise, cases: RawJudicialCase[] = []): 
     zhixingCount: e.zhixingCount || 0,
     shixinCount: e.shixinCount || 0,
     bidCount: e.bidCount || 0,
-    // 真实财务数据（工商年报公示值，finYear 为空表示该企业未公示）
-    assetTotal: e.assetTotal || 0,
-    netProfit: e.netProfit || 0,
+    // 真实财务数据（工商年报公示值）。null = 该字段年报未公示，界面须显示「未公示」，
+    // 不得转成 0（0 会被读作"真的零纳税/零利润"）。
+    assetTotal: e.assetTotal ?? null,
+    netProfit: e.netProfit ?? null,
     finYear: e.finYear || null,
     // 企业档案记录（处罚/异常/出质/抵押/分支），detail 为 JSON 字符串
     records: (e.records || []).map((r: any) => ({
@@ -469,7 +474,7 @@ export function mapProject(p: RawProject): any {
     '投资 ' + fmtAmountWan(Math.round(p.investment)) + '元',
     '就业 ' + Math.round((ent?.employees || 100) * 1.1) + ' 人',
     '达产营收 ' + (ent ? (ent.revenue >= 10000 ? (ent.revenue / 10000).toFixed(1) + '亿元' : ent.revenue + '万元') : '—'),
-    '税收 ' + (ent ? (ent.tax >= 10000 ? (ent.tax / 10000).toFixed(1) + '亿元' : ent.tax + '万元') : '—'),
+    '税收 ' + (ent ? (ent.tax == null ? '未公示' : (ent.tax >= 10000 ? (ent.tax / 10000).toFixed(1) + '亿元' : ent.tax + '万元')) : '—'),
   ]
 
   // 进展情况：历史阶段取阶段详情，当前阶段缺省小结

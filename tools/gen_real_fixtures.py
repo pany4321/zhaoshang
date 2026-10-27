@@ -351,6 +351,45 @@ def load_financials():
     return best
 
 
+def load_employees():
+    """工商年报「从业人数」：{credit_no: (report_year, count)}，每户取最近的可解析年份
+
+    数据源：Doris annual_report_base.employee_no（导出为 data-import/employee.csv）
+    原始值形如 "410人"；另有 "企业选择不公示" —— 后者视为无真值，置空并显示「未公示」，
+    不回落到 build_ops() 的推导值（推导值实测把就业规模平均高估约 10 倍）。
+    """
+    import re as _re
+    p = os.path.join(BASE, 'data-import', 'employee.csv')
+    if not os.path.exists(p):
+        print('  ! 未找到年报从业人数（employee.csv），employees 全部置空')
+        return {}
+
+    def num(v):
+        s = str(v or '').strip()
+        if not s or '不公示' in s:
+            return None
+        m = _re.match(r'^(-?\d+(?:\.\d+)?)\s*人?$', s)
+        return int(float(m.group(1))) if m else None
+
+    best = {}
+    for r in csv.DictReader(open(p, encoding='utf-8')):
+        cc = (r.get('credit_no') or '').strip()
+        if not cc:
+            continue
+        try:
+            y = int(r.get('report_year') or 0)
+        except ValueError:
+            continue
+        n = num(r.get('employee_no'))
+        if n is None:
+            continue
+        cur = best.get(cc)
+        if cur and y <= cur[0]:
+            continue
+        best[cc] = (y, n)
+    return best
+
+
 def load_records():
     """企业档案记录：行政处罚/经营异常/股权出质/动产抵押/分支机构
 
@@ -531,6 +570,7 @@ def main():
     ip_metrics = load_ip_metrics([r['company_name'].strip() for r in picked])
     cases_map = load_judicial_cases()
     financials = load_financials()
+    employees_map = load_employees()
     national_industry = load_national_industry()
     records_map = load_records()
     enterprises, raws, judicial_cases = [], [], []
@@ -553,23 +593,35 @@ def main():
         revenue, tax, investment, employees, land_mu, perform = build_ops(cap, name, seed)
 
         # 年报公示的真实财务值优先：营收>0 时整条采纳（营收/纳税/资产/净利润同源同年）
-        asset_total, net_profit, fin_year = 0.0, 0.0, None
+        # ★ 口径（2026-10-26 决策）：未公示字段一律置 None，界面显示「未公示」。
+        #   既不用 0 冒充（0 会被读成"真的零纳税"），也不回落到 build_ops() 的推导值。
+        asset_total, net_profit, fin_year = None, None, None
         _fin = financials.get(cc)
         if _fin and _fin.get('revenue') and _fin['revenue'] > 0:
             fin_year = str(_fin['year'])
-            # ★ 一旦有真实年报，财务四项全部取年报值；年报未公示的字段记 0，
-            #   绝不回落到 build_ops() 的规则推导值——宁可显示 0，也不拿推导值冒充真实数。
-            #   （旧实现 tax/profit 为 None 时保留推导值，曾使 1 家纳税额被推导污染）
             revenue = round(_fin['revenue'], 1)
-            tax = round(max(0.0, _fin.get('tax') or 0.0), 1)
-            asset_total = round(max(0.0, _fin.get('asset') or 0.0), 1)
-            net_profit = round(_fin.get('profit') or 0.0, 1)
+            tax = round(_fin['tax'], 1) if _fin.get('tax') is not None else None
+            asset_total = round(_fin['asset'], 1) if _fin.get('asset') is not None else None
+            net_profit = round(_fin['profit'], 1) if _fin.get('profit') is not None else None
             if _fin.get('tax') is None:
                 MISSING_FIELDS.setdefault('tax', []).append(name)
             if _fin.get('asset') is None:
                 MISSING_FIELDS.setdefault('asset', []).append(name)
             if _fin.get('profit') is None:
                 MISSING_FIELDS.setdefault('profit', []).append(name)
+        else:
+            # 完全没有可用年报 → 财务四项置空，不留推导值
+            revenue, tax = None, None
+            MISSING_FIELDS.setdefault('all', []).append(name)
+
+        # 年报从业人数（真实）优先；年报「选择不公示」或无记录 → 置空显示「未公示」。
+        # 推导值实测把就业规模平均高估约 10 倍，故不回落到 build_ops()。
+        _emp = employees_map.get(cc)
+        if _emp:
+            employees = _emp[1]
+        else:
+            employees = None
+            MISSING_FIELDS.setdefault('employees', []).append(name)
 
         is_new = est_year >= TODAY.year - 1
         eid = f'E{i:03d}'
@@ -630,44 +682,75 @@ def main():
         ent['creditStatus'] = '较差' if score >= 65 else ('关注' if score >= 45 else '良好')
 
     # ---------- 风险事件 67 条 ----------
+    # 口径：八维必须全覆盖。
+    # 旧逻辑只取每家企业分最高的 1-2 维，而 raw_risks 给 credit(×0.90)/tender(×0.78)/ip(×0.60)
+    # 三个维度系统性低系数，导致这三个维度永远排不进 dims_sorted 前 2 → 各 0 条事件。
+    # 现改为「维度保底 + 高分优先」两阶段；总条数仍锁 STATUS_PLAN 的 67 条，保持既有对账口径。
     pool = sorted(enterprises, key=lambda e: -e['riskScore'])
     STATUS_PLAN = ['pending'] * 9 + ['doing'] * 31 + ['done'] * 27
-    events, ei = [], 0
-    for ent in pool:
-        if ei >= len(STATUS_PLAN):
-            break
-        dims_sorted = sorted(W.keys(), key=lambda k: -ent[KEY_MAP[k]])
-        cnt = 2 if ent['riskScore'] >= 55 and ei + 1 < len(STATUS_PLAN) else 1
-        for j in range(cnt):
-            if ei >= len(STATUS_PLAN):
+    DIMS = list(W.keys())
+    SUGGEST = {
+        'op': '实地走访企业，核实产能与订单情况',
+        'fin': '核查企业现金流与负债结构，评估偿付能力',
+        'legal': '跟进涉诉案件进展，评估对经营的影响',
+        'credit': '核实失信与行政处罚记录，督促信用修复',
+        'tender': '核查招投标履约记录，关注围标串标风险',
+        'tax': '协同税务部门核实申报与欠税情况',
+        'commit': '核对投资强度与建设进度，督促履约',
+        'ip': '排查专利与商标纠纷，关注侵权风险',
+    }
+    used = set()
+    events = []
+
+    def _mk(ent, dk):
+        idx = len(events)
+        dv = ent[KEY_MAP[dk]]
+        lvl = 'red' if dv >= 75 else ('orange' if dv >= 58 else ('yellow' if dv >= 40 else 'blue'))
+        mm = 1 + dh(ent['creditCode'], 'date', idx) % 9
+        dd = 1 + dh(ent['creditCode'], 'day', idx) % 27
+        return {
+            'id': f'R{idx+1:03d}',
+            'title': f'{DIM_NAME[dk]}提示：{ent["name"][:14]}',
+            'dimension': dk, 'dimensionName': DIM_NAME[dk], 'level': lvl,
+            'status': STATUS_PLAN[idx], 'enterpriseId': ent['id'],
+            'districtId': ent['districtId'], 'foundDate': f'2026-{mm:02d}-{dd:02d}',
+            'detail': f'{ent["name"]}在{DIM_NAME[dk]}维度识别到异常信号（模型评分 {dv}），建议属地部门核实企业经营状况。',
+            'suggestion': SUGGEST[dk],
+        }
+
+    # 阶段一 —— 维度保底：每个维度先占 MIN_PER_DIM 条，取该维度分数最高的企业
+    MIN_PER_DIM = 3
+    for dk in DIMS:
+        for ent in sorted(enterprises, key=lambda e: -e[KEY_MAP[dk]])[:15]:
+            if len(events) >= len(STATUS_PLAN):
                 break
-            dk = dims_sorted[j] if j < len(dims_sorted) else dims_sorted[0]
-            dv = ent[KEY_MAP[dk]]
-            lvl = 'red' if dv >= 75 else ('orange' if dv >= 58 else ('yellow' if dv >= 40 else 'blue'))
-            mm = 1 + dh(ent['creditCode'], 'date', ei) % 9
-            dd = 1 + dh(ent['creditCode'], 'day', ei) % 27
-            events.append({
-                'id': f'R{ei+1:03d}',
-                'title': f'{DIM_NAME[dk]}提示：{ent["name"][:14]}',
-                'dimension': dk, 'dimensionName': DIM_NAME[dk], 'level': lvl,
-                'status': STATUS_PLAN[ei], 'enterpriseId': ent['id'],
-                'districtId': ent['districtId'], 'foundDate': f'2026-{mm:02d}-{dd:02d}',
-                'detail': f'{ent["name"]}在{DIM_NAME[dk]}维度识别到异常信号（模型评分 {dv}），建议属地部门核实企业经营状况。',
-                'suggestion': {
-                    'op': '实地走访企业，核实产能与订单情况',
-                    'fin': '核查企业现金流与负债结构，评估偿付能力',
-                    'legal': '跟进涉诉案件进展，评估对经营的影响',
-                    'credit': '核实失信与行政处罚记录，督促信用修复',
-                    'tender': '核查招投标履约记录，关注围标串标风险',
-                    'tax': '协同税务部门核实申报与欠税情况',
-                    'commit': '核对投资强度与建设进度，督促履约',
-                    'ip': '排查专利与商标纠纷，关注侵权风险',
-                }[dk],
-            })
-            ei += 1
+            if sum(1 for ev in events if ev['dimension'] == dk) >= MIN_PER_DIM:
+                break
+            if (ent['id'], dk) in used:
+                continue
+            used.add((ent['id'], dk))
+            events.append(_mk(ent, dk))
+
+    # 阶段二 —— 高分优先：剩余名额按企业风险分降序填充，取该企业分数最高的未用维度
+    for ent in pool:
+        if len(events) >= len(STATUS_PLAN):
+            break
+        if sum(1 for ev in events if ev['enterpriseId'] == ent['id']) >= 2:
+            continue
+        for dk in sorted(DIMS, key=lambda k: -ent[KEY_MAP[k]]):
+            if len(events) >= len(STATUS_PLAN):
+                break
+            if (ent['id'], dk) in used:
+                continue
+            if sum(1 for ev in events if ev['enterpriseId'] == ent['id']) >= 2:
+                break
+            used.add((ent['id'], dk))
+            events.append(_mk(ent, dk))
+
+    ei = len(events)
 
     # ---------- 招商项目 19 个 ----------
-    proj_pool = sorted(enterprises, key=lambda e: (not e['isNew'], -e['revenue']))[:19]
+    proj_pool = sorted(enterprises, key=lambda e: (not e['isNew'], -(e['revenue'] or 0)))[:19]
     STAGES = ['线索对接', '深度洽谈', '签约落地', '建设推进', '投产运营', '达产评价']
     STAGE_DIST = [0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 2, 3, 4, 1]
     ORGS = ['市招商局', '西峰区招商服务中心', '庆城县招商局', '环县招商服务中心',
@@ -800,7 +883,12 @@ def main():
     print(f'   国标门类分布: {dict(Counter(e["nationalIndustryL1"] for e in enterprises if e.get("nationalIndustryL1")).most_common(8))}')
     print(f'   风险等级: {dict(Counter(e["riskLevel"] for e in enterprises))}')
     print(f'   规模: {dict(Counter(e["scale"] for e in enterprises))}')
-    print(f'   营收合计 {sum(e["revenue"] for e in enterprises)/10000:.1f} 亿 | 纳税 {sum(e["tax"] for e in enterprises)/10000:.2f} 亿')
+    _rev_sum = sum((e["revenue"] or 0) for e in enterprises)
+    _tax_known = [e["tax"] for e in enterprises if e["tax"] is not None]
+    _tax_sum = sum(_tax_known)
+    _tax_unpub = len(enterprises) - len(_tax_known)
+    print(f'   营收合计 {_rev_sum/10000:.1f} 亿 | 纳税 {_tax_sum/10000:.2f} 亿'
+          + (f'（另 {_tax_unpub} 家未公示）' if _tax_unpub else ''))
     print(f'   重点企业 {sum(1 for e in enterprises if e["isKey"])} | 本月新增 {sum(1 for e in enterprises if e["isNew"])}')
     print(f'   信用状态: {dict(Counter(e["creditStatus"] for e in enterprises))}')
 
@@ -817,14 +905,17 @@ def main():
     print(f'   ✅ 财务真实性校验通过：{len(enterprises)}/{len(enterprises)} 家企业均有真实年报财务')
 
     # ★ 年报「部分公示」审计：营收有值但纳税/资产/净利润未公示的企业，
-    #   这些字段记 0（不推导）。此处如实列出家数，供文档口径核对。
+    #   这些字段置空（None，界面显示「未公示」），既不记 0 也不推导。此处如实列出家数。
     if MISSING_FIELDS:
         print()
-        print('   年报部分字段未公示（记 0，未做推导）：')
-        for k, label in (('tax', '纳税'), ('asset', '资产总额'), ('profit', '净利润')):
+        print('   年报部分字段未公示（置空，界面显示「未公示」，未做推导）：')
+        for k, label in (('tax', '纳税'), ('asset', '资产总额'), ('profit', '净利润'),
+                         ('employees', '从业人数')):
             names = MISSING_FIELDS.get(k) or []
             if names:
                 print(f'     {label}: {len(names)} 家 — {"、".join(names[:5])}')
+        if MISSING_FIELDS.get('all'):
+            print(f'     完全无可用年报: {len(MISSING_FIELDS["all"])} 家')
     else:
         print('   ✅ 年报营收/纳税/资产/净利润四项均完整公示，无字段缺失')
 

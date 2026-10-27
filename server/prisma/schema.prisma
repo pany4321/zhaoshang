@@ -111,9 +111,9 @@ model Enterprise {
 
   // 核心指标
   revenue     Float    @default(0) // 年营收（万元）
-  tax         Float    @default(0) // 纳税（万元）
+  tax         Float?   @default(0) // 纳税（万元）；null = 年报未公示
   investment  Float    @default(0) // 固投（万元）
-  employees   Int      @default(0) // 员工数
+  employees   Int?     @default(0) // 员工数（年报从业人数）；null = 年报「选择不公示」
   landMu      Float    @default(0) // 用地（亩）
   performRate Int      @default(90) // 履约率 %
   commitRate  Int?     // 承诺完成率 %
@@ -140,8 +140,8 @@ model Enterprise {
   bidCount       Int @default(0) // 招投标参与数
 
   // ===== 真实财务数据（来源：工商年报公示，仅公示企业有值）=====
-  assetTotal Float   @default(0) // 资产总额（万元）
-  netProfit  Float   @default(0) // 净利润（万元，可为负）
+  assetTotal Float?  @default(0) // 资产总额（万元）；null = 年报未公示
+  netProfit  Float?  @default(0) // 净利润（万元，可为负）；null = 年报未公示
   finYear    String? // 财务数据所属年份，null = 该企业未公示财务数据
 
   // ===== 真实国标行业分类（来源 company_industry，2017 国民经济行业分类，官方公示）=====

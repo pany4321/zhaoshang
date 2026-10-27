@@ -383,7 +383,7 @@
         if (ent) {
           return '【' + ent.name + ' 企业洞察报告】\n\n' +
             '📊 基本概况\n' +
-            '该企业成立于' + ent.found + '，注册资本' + ent.overview.regCapital + '，位于' + ent.districtName + '，属于' + ent.industryName + '行业。现有员工' + ent.overview.employees + '人。\n\n' +
+            '该企业成立于' + ent.found + '，注册资本' + ent.overview.regCapital + '，位于' + ent.districtName + '，属于' + ent.industryName + '行业。现有员工' + (ent.overview.employees == null ? '未公示' : ent.overview.employees + ' 人') + '。\n\n' +
             '💰 经营业绩\n' +
             '年营收' + ent.overview.revenue + '，年纳税' + ent.overview.tax + '，固定资产投资' + ent.overview.invest + '。近6个月营收呈' + (ent.operation.revenue[5] > ent.operation.revenue[0] ? '上升' : '下降') + '趋势。\n\n' +
             '⚠️ 风险评估\n' +

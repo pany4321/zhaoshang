@@ -295,14 +295,15 @@
     var finHtml = (function () {
       if (!e.finYear) return '';
       var fmt = function (v) {
-        if (v == null) return '—';
+        // 年报未公示该字段（null）——如实显示「未公示」，不用 0 或短横线含糊带过
+        if (v == null) return '未公示';
         var n = Number(v);
         if (Math.abs(n) >= 10000) return (n / 10000).toFixed(2) + ' 亿元';
         return n.toLocaleString('zh-CN', { maximumFractionDigits: 1 }) + ' 万元';
       };
       var items = [
         { label: '资产总额', val: fmt(e.assetTotal), color: '#0F172A' },
-        { label: '净利润', val: fmt(e.netProfit), color: (Number(e.netProfit) < 0 ? '#EF4444' : '#10B981') },
+        { label: '净利润', val: fmt(e.netProfit), color: (e.netProfit == null ? '#94A3B8' : (Number(e.netProfit) < 0 ? '#EF4444' : '#10B981')) },
         { label: '年报年份', val: e.finYear + ' 年', color: '#2563EB' }
       ];
       return '<div style="margin-top:20px;font-weight:600;color:#0F172A;margin-bottom:10px;font-size:14px;">年报公示财务</div>' +
@@ -473,7 +474,7 @@
             '<div class="row" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">' +
               kpi4('总营收', e.overview.revenue) +
               kpi4('纳税', e.overview.tax) +
-              kpi4('员工数', e.overview.employees.toLocaleString() + '人') +
+              kpi4('员工数', e.overview.employees == null ? '未公示' : e.overview.employees.toLocaleString() + '人') +
               kpi4('履约率', e.status.performRate + '%', perfColor) +
             '</div>' +
             '<div style="font-weight:600;color:#0F172A;margin-bottom:8px;font-size:14px;">招商承诺完成情况</div>' +
@@ -1293,7 +1294,7 @@
       [5700, function () { log('✓ 未发现异常关联交易与隐性控制关系'); }],
       // 第 3 步 · 分析经营表现与履约水平（财税数据聚合，约 3.2 秒）
       [5950, function () { refreshSteps(2); log('分析经营表现与履约水平…', '#1D4ED8', true); }],
-      [6600, function () { log('✓ 经营表现 · 年营收 ' + e.overview.revenue + '，纳税 ' + e.overview.tax + '，员工 ' + Number(e.overview.employees).toLocaleString() + ' 人'); }],
+      [6600, function () { log('✓ 经营表现 · 年营收 ' + e.overview.revenue + '，纳税 ' + e.overview.tax + '，员工 ' + (e.overview.employees == null ? '未公示' : Number(e.overview.employees).toLocaleString() + ' 人')); }],
       [7250, function () { log('✓ 履约水平 · 平均履约率 ' + e.status.performRate + '%' + (cr != null ? ('，招商承诺平均完成率 ' + cr + '%') : '')); }],
       [7850, function () { log(dyn ? ('✓ 最近动态：' + dyn.date + ' ' + dyn.text) : '✓ 暂无新增企业动态'); }],
       [8750, function () { log('✓ 经营与履约分析完成'); }],
@@ -1415,7 +1416,7 @@
           '<div class="ai-sec"><p>' + U.esc(j.summary) + '</p></div>' +
           '<div class="ai-sec"><h4>关键指标快照</h4>' +
             '<table class="tbl" style="margin-top:4px;"><thead><tr><th>总营收</th><th class="num">纳税</th><th class="num">员工数</th><th class="num">履约率</th><th class="num">承诺完成率</th><th class="num">综合指数</th></tr></thead><tbody>' +
-              '<tr><td>' + U.esc(e.overview.revenue) + '</td><td class="num">' + U.esc(e.overview.tax) + '</td><td class="num">' + Number(e.overview.employees).toLocaleString() + '</td><td class="num">' + e.status.performRate + '%</td><td class="num">' + (cr != null ? cr + '%' : '—') + '</td><td class="num" style="color:' + M.LEVELS[e.riskLevel].color + ';font-weight:700;">' + e.riskScore + '</td></tr>' +
+              '<tr><td>' + U.esc(e.overview.revenue) + '</td><td class="num">' + U.esc(e.overview.tax) + '</td><td class="num">' + (e.overview.employees == null ? '未公示' : Number(e.overview.employees).toLocaleString()) + '</td><td class="num">' + e.status.performRate + '%</td><td class="num">' + (cr != null ? cr + '%' : '—') + '</td><td class="num" style="color:' + M.LEVELS[e.riskLevel].color + ';font-weight:700;">' + e.riskScore + '</td></tr>' +
             '</tbody></table></div>' +
           '<div class="ai-sec"><h4>核心优势</h4><ul>' + j.strengths.map(li).join('') + '</ul></div>' +
           '<div class="ai-sec"><h4>关注风险与建议</h4><ul>' + j.risks.map(li).join('') + '</ul></div>' +
@@ -1546,7 +1547,7 @@
           '<tr>' +
             '<td style="border:1px solid #CBD5E1;padding:7px;">' + U.esc(e.overview.revenue) + '</td>' +
             '<td style="border:1px solid #CBD5E1;padding:7px;">' + U.esc(e.overview.tax) + '</td>' +
-            '<td style="border:1px solid #CBD5E1;padding:7px;">' + Number(e.overview.employees).toLocaleString() + ' 人</td>' +
+            '<td style="border:1px solid #CBD5E1;padding:7px;">' + (e.overview.employees == null ? '未公示' : Number(e.overview.employees).toLocaleString() + ' 人') + '</td>' +
             '<td style="border:1px solid #CBD5E1;padding:7px;">' + e.status.performRate + '%</td>' +
             '<td style="border:1px solid #CBD5E1;padding:7px;">' + (cr != null ? cr + '%' : '—') + '</td>' +
           '</tr>' +
@@ -1824,7 +1825,7 @@
     secTitle('四', '经营与履约概览');
     pdfTable({
       head: [['年营收', '纳税总额', '员工数', '平均履约率', '承诺完成率']],
-      body: [[e.overview.revenue, e.overview.tax, Number(e.overview.employees).toLocaleString() + ' 人',
+      body: [[e.overview.revenue, e.overview.tax, (e.overview.employees == null ? '未公示' : Number(e.overview.employees).toLocaleString() + ' 人'),
         e.status.performRate + '%', cr != null ? cr + '%' : '—']],
       columnStyles: { 0: { cellWidth: CW / 5 }, 1: { cellWidth: CW / 5 }, 2: { cellWidth: CW / 5 }, 3: { cellWidth: CW / 5 }, 4: { cellWidth: CW / 5 } },
       styles: { halign: 'center' }
