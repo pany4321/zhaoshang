@@ -84,6 +84,27 @@ if (!hasReal) {
   ok(M.entById(e1.id) && M.entById(e1.id).name === e1.name, 'entById 与 global.MOCK 指向同一份数据（闭包已原地替换）')
   ok(M.RISK_EVENTS.length === 67 && M.PROJECTS.length === 19 && M.TASKS.length === 78 && M.POLICY_LIB.length === 24,
     `明细数对齐后端（事件 67 / 项目 19 / 任务 78 / 政策 24，实际 ${M.RISK_EVENTS.length}/${M.PROJECTS.length}/${M.TASKS.length}/${M.POLICY_LIB.length}）`)
+
+  // ===== 2026-10-26 审核补的回归防护 =====
+  // 这三类问题都能"数字全对但语义已错"，光看计数断言发现不了。
+  // ① 单企业事件数 ≤ 2：维度保底阶段曾漏掉该约束，实测出现过单企业 6 条
+  const evCnt = {}
+  M.RISK_EVENTS.forEach(e => { evCnt[e.entId] = (evCnt[e.entId] || 0) + 1 })
+  const overCap = Object.entries(evCnt).filter(([, n]) => n > 2)
+  ok(overCap.length === 0,
+    `单企业事件数 ≤ 2（超限 ${overCap.length} 家${overCap.length ? '：' + overCap.slice(0, 3).map(([k, v]) => k + '×' + v).join(', ') : ''}）`)
+  // ② 八维全覆盖：曾出现信用/招投标/知识产权各 0 条（低系数维度排不进"取最高分"逻辑）
+  const DIMS8 = ['经营风险', '财务风险', '司法风险', '信用风险', '招投标风险', '税务风险', '招商履约风险', '知识产权风险']
+  const hitDim = new Set(M.RISK_EVENTS.map(e => e.dimName))
+  const missDim = DIMS8.filter(d => !hitDim.has(d))
+  ok(missDim.length === 0, `八维风险均有事件（缺：${missDim.join('/') || '无'}）`)
+  // ③ 未公示必须是 null，绝不能是 0 —— 0 会被读成"真实零纳税/零雇工"
+  const nullTax = M.ENTERPRISES.filter(e => (e.overview || {}).taxWan === null)
+  const nullEmp = M.ENTERPRISES.filter(e => (e.overview || {}).employees === null)
+  ok(nullTax.length === 1, `纳税未公示以 null 表达（应为 1 家，实际 ${nullTax.length} 家）`)
+  ok(nullEmp.length === 22, `从业人数未公示以 null 表达（应为 22 家，实际 ${nullEmp.length} 家）`)
+  const empYearCnt = M.ENTERPRISES.filter(e => e.empYear).length
+  ok(empYearCnt === 66, `从业人数标注了数据年份（应为 66 家，实际 ${empYearCnt} 家）`)
   const sumRisk = M.ENTERPRISES.reduce((a, e) => (a[e.riskLevel] = (a[e.riskLevel] || 0) + 1, a), {})
   ok(sumRisk.red + sumRisk.orange + sumRisk.yellow + sumRisk.blue === 88, '四级风险分布覆盖全部企业：' + JSON.stringify(sumRisk))
   ok(M.OVERVIEW && M.OVERVIEW.totalEnterprises === 88, `OVERVIEW 企业数 = 88（实际 ${M.OVERVIEW && M.OVERVIEW.totalEnterprises}）`)
