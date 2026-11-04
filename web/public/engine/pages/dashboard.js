@@ -193,7 +193,7 @@
     var yearLabels = realYears.map(function (yy) { return yy + '年'; });
     var yearRevenue = [], yearTax = [], yearEmploy = [], yearInvest = [], yearCover = [];
     realYears.forEach(function (yy) {
-      var rv = 0, tx = 0, em = 0, iv = 0, cover = 0;
+      var rv = 0, tx = 0, em = 0, iv = 0, cover = 0, coverTax = 0, coverEmp = 0, coverInv = 0;
       ents.forEach(function (e) {
         var y = e.overview && e.overview.yearly;
         if (!y || !y.years) return;
@@ -203,14 +203,18 @@
         if (rev == null) return;              // 该企业该年未公示营收 → 不计入
         cover++;
         rv += rev / 10000;
-        tx += ((y.taxWan && y.taxWan[i]) || 0) / 10000;
-        em += ((y.employees && y.employees[i]) || 0) / 100;
-        iv += ((y.investWan && y.investWan[i]) || 0) / 10000;
+        // 各口径分别判空：全部企业都未公示的年份输出 null（= 不画），不能输出 0 假装有值
+        var txv = (y.taxWan && y.taxWan[i] != null) ? y.taxWan[i] : null;
+        if (txv != null) { tx += txv / 10000; coverTax++; }
+        var emv = (y.employees && y.employees[i] != null) ? y.employees[i] : null;
+        if (emv != null) { em += emv / 100; coverEmp++; }
+        var ivv = (y.investWan && y.investWan[i] != null) ? y.investWan[i] : null;
+        if (ivv != null) { iv += ivv / 10000; coverInv++; }
       });
       yearRevenue.push(+rv.toFixed(1));
-      yearTax.push(+tx.toFixed(2));
-      yearEmploy.push(Math.round(em));
-      yearInvest.push(+iv.toFixed(1));
+      yearTax.push(coverTax ? +tx.toFixed(2) : null);
+      yearEmploy.push(coverEmp ? Math.round(em) : null);
+      yearInvest.push(coverInv ? +iv.toFixed(1) : null);
       yearCover.push(cover);
     });
 
@@ -502,10 +506,17 @@
     var trendOpt;
     if (trendTab === 'year') {
       // 本年度：月度柱状+折线（与近五年格式一致）
-      // 月度投资（从年度投资按月分配，带小幅波动）
+      // 月度投资：工商年报不公示历年固投，只有存在真实年度值时才按月分配；
+      // 否则整条系列置 null（不画），不能把"不公示"画成 0。
+      // 注意：不能硬编码 yearInvest[4]——真实年份并集长度随数据变化（当前 4 年），会取到 undefined。
+      var lastInvest = null;
+      for (var li = yearInvest.length - 1; li >= 0; li--) {
+        if (yearInvest[li] != null) { lastInvest = yearInvest[li]; break; }
+      }
       var monthInvest = [];
       for (var mi = 0; mi < monthCount; mi++) {
-        monthInvest.push(+(yearInvest[4] / 12 * (1 + 0.05 * Math.sin(mi / 12 * Math.PI * 2))).toFixed(1));
+        if (lastInvest == null) { monthInvest.push(null); continue; }
+        monthInvest.push(+(lastInvest / 12 * (1 + 0.05 * Math.sin(mi / 12 * Math.PI * 2))).toFixed(1));
       }
       trendOpt = {
         tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
@@ -536,8 +547,24 @@
       };
     } else {
       // 近五年：年度柱状+折线
+      // tooltip 补充「当年覆盖 N 家企业年报」——年际不可比的主因是覆盖家数不同
+      // （2022 年仅 13 家、2023 年 45 家、2024 年 51 家、2025 年 54 家），不标注会被误读成断崖。
       trendOpt = {
-        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+        tooltip: {
+          trigger: 'axis', axisPointer: { type: 'shadow' },
+          formatter: function (ps) {
+            if (!ps || !ps.length) return '';
+            var idx = ps[0].dataIndex;
+            var people = yearCover[idx];
+            var out = '<b>' + ps[0].axisValue + '</b>' +
+              (people == null ? '' : '　<span style="color:#94A3B8;font-size:11px">覆盖 ' + people + ' 家企业年报</span>');
+            ps.forEach(function (p) {
+              out += '<br/>' + p.marker + p.seriesName + '：' +
+                (p.value == null ? '<span style="color:#94A3B8">年报未公示</span>' : p.value);
+            });
+            return out;
+          }
+        },
         legend: trendLegend,
         grid: trendGrid,
         xAxis: { type: 'category', data: yearLabels, axisLabel: { fontSize: trendNarrow ? 10 : 11 } },
