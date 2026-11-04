@@ -151,7 +151,11 @@ app.register(fastifyStatic, {
   //   其它（/engine/**、index.html）文件名无 hash，必须每次协商校验，
   //   否则改完前端代码用户浏览器会继续用旧 JS（表现为"改了没生效"）
   setHeaders(res, filePath) {
-    if (filePath.includes('/assets/')) {
+    // ★ 必须按「相对 public 根」判断，不能用 filePath.includes('/assets/')：
+    //   demo 的静态资源也在 /demo/assets/ 下（文件名无 hash），用子串判断会把它
+    //   误判成构建产物，给出 1 年 immutable → 演示端改了 JS 用户一年看不到新版。
+    const rel = path.relative(publicDir, filePath).split(path.sep).join('/')
+    if (/^assets\//.test(rel)) {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
     } else {
       res.setHeader('Cache-Control', 'no-cache')

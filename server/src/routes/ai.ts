@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../utils/prisma.js'
 import { ok, fail } from '../utils/helper.js'
-import { llmChat, llmConfigured, llmChatWithTools, AGENT_SYSTEM } from '../services/llm.js'
+import { llmChat, llmConfigured, llmChatWithTools, AGENT_SYSTEM, RISK_TRACING_SKILL } from '../services/llm.js'
 import { DORIS_TOOLS, runDorisTool, toolsAvailable } from '../services/dorisTools.js'
 import { DORIS_SCHEMA_HINT } from '../services/dorisSchemaHint.js'
 import { AI_TOOLS, executeTool } from '../services/aiTools.js'
@@ -62,6 +62,113 @@ function getReply(agent: string, msg: string): string {
     if (msg.includes(key)) return replies[key]
   }
   return DEFAULT_REPLIES[agent] || DEFAULT_REPLIES.service
+}
+
+/* ============================================================
+ * 企业名称识别 → 强制启用《企业风险溯源报告》技能
+ *
+ * 需求（2026-11-04）：企业洞察 / 风险研判两个智能体，只要用户给了企业名称，
+ * 就必须走 enterprise-risk-tracing-report 技能的六部分报告，而不是几百字泛评。
+ * 这里在代码层做识别，命中即注入技能协议（不依赖模型自觉），
+ * 并把已确认的主体（全称+统一社会信用代码）一并给出，省掉一轮「先查主体」。
+ * ============================================================ */
+
+/** 智能体中需要强制技能的：企业洞察 / 风险研判 */
+const SKILL_AGENTS = new Set(['insight', 'risk'])
+
+/** 去掉行政区划前缀与组织形式后缀，得到可用于简称匹配的核心词 */
+function coreName(name: string): string {
+  return String(name)
+    .replace(/^(?:(?:甘肃|庆阳|华池|镇原|宁县|正宁|合水|环县|庆城|西峰)(?:省|市|县|区)?)+/, '')
+    .replace(/(?:有限责任公司|股份有限公司|有限公司|股份公司|集团|公司)$/g, '')
+    .trim()
+}
+
+/** 核心词的所有可用别名：逐层剥离尾部通用词 + 前缀子串 */
+function nameAliases(name: string): string[] {
+  const core = coreName(name)
+  const set = new Set<string>([core])
+  // 逐层剥离尾部通用词（圣越农牧发展 → 圣越农牧）
+  const tails = ['发展', '科技', '实业', '产业', '投资', '控股', '开发', '建设', '工程', '农牧', '农业', '新能源', '技术']
+  let cur = core
+  for (let guard = 0; guard < 4; guard++) {
+    const t = tails.find((x) => cur.endsWith(x) && cur.length - x.length >= 2)
+    if (!t) break
+    cur = cur.slice(0, -t.length)
+    set.add(cur)
+  }
+  // 前缀子串兜底（4~6 字），覆盖用户只说前几个字的情形
+  for (const n of [6, 5, 4]) if (core.length > n) set.add(core.slice(0, n))
+  return [...set].filter((s) => s.length >= 4)
+}
+
+export async function detectEnterprise(
+  message: string
+): Promise<{ id: string; name: string; creditCode: string } | null> {
+  const text = String(message || '')
+  if (text.length < 2) return null
+  const ents = await prisma.enterprise.findMany({
+    select: { id: true, name: true, creditCode: true },
+  })
+  // 1) 全称命中（最长优先，避免短名误吞）
+  const full = ents
+    .filter((e) => e.name.length >= 3 && text.includes(e.name))
+    .sort((a, b) => b.name.length - a.name.length)[0]
+  if (full) return full
+  // 2) 别名/简称命中：命中串越长越可信
+  const hits: { e: (typeof ents)[number]; s: string }[] = []
+  for (const e of ents) {
+    for (const a of nameAliases(e.name)) {
+      if (text.includes(a)) hits.push({ e, s: a })
+    }
+  }
+  hits.sort((a, b) => b.s.length - a.s.length)
+  return hits.length ? hits[0].e : null
+}
+
+/** 强制技能用：把平台已掌握的企业主档一次性注入，避免模型再花 1-2 轮工具查基础信息 */
+async function buildEnterpriseDossier(entId: string): Promise<string> {
+  const e: any = await prisma.enterprise.findUnique({
+    where: { id: entId },
+    include: {
+      district: { select: { name: true } },
+      industry: { select: { name: true } },
+      shareholders: { orderBy: { ratio: 'desc' } },
+      judicialCases: { take: 12 },
+      records: { take: 12 },
+      riskEvents: { take: 10 },
+    },
+  })
+  if (!e) return ''
+  const nn = (v: any, u = '') => (v === null || v === undefined ? '未公示' : `${v}${u}`)
+  const L: string[] = []
+  L.push('【平台已掌握的主档数据——直接引用，不要再调用工具重复查这些字段】')
+  L.push(`企业：${e.name}｜统一社会信用代码 ${e.creditCode}｜${e.district?.name || '区县未定'}｜${e.industry?.name || '行业未定'}｜${e.scale}｜经营状态 ${e.bizStatus}｜信用状态 ${e.creditStatus}`)
+  L.push(`登记：法定代表人 ${e.legal}，成立 ${e.found}，注册资本 ${e.regCapital}`)
+  L.push(`国标行业：${[e.nationalIndustryL1, e.nationalIndustry, e.nationalIndustryL3].filter(Boolean).join(' / ') || '未获取'}`)
+  L.push(`经营（${e.finYear || '年份未公示'}）：营收 ${nn(e.revenue, '万元')}、纳税 ${nn(e.tax, '万元')}、净利润 ${nn(e.netProfit, '万元')}、总资产 ${nn(e.assetTotal, '万元')}、固投 ${nn(e.investment, '万元')}、用地 ${nn(e.landMu, '亩')}、从业 ${nn(e.employees, '人')}（${e.empYear || '年份未公示'}）、履约率 ${e.performRate}%`)
+  L.push(`风险：综合 ${e.riskScore} 分（${e.riskLevel}）；八维 经营${e.riskOp}/财务${e.riskFin}/司法${e.riskLegal}/信用${e.riskCredit}/招投标${e.riskTender}/税务${e.riskTax}/履约${e.riskCommit}/知产${e.riskIp}`)
+  L.push(`司法与知产：司法案件 ${e.judicialCount} 件、被执行 ${e.zhixingCount}、失信 ${e.shixinCount}、专利 ${e.patentCount}（发明 ${e.inventionCount}）、商标 ${e.trademarkCount}、招投标 ${e.bidCount}`)
+  if (e.shareholders?.length) {
+    L.push(`股东：${e.shareholders.map((s: any) => `${s.name} ${s.ratio}%`).join('；')}`)
+  }
+  if (e.judicialCases?.length) {
+    L.push(`司法案件明细（前 ${e.judicialCases.length} 条）：${e.judicialCases
+      .map((c: any) => `${c.trialTime || ''} ${c.caseReason || c.title || ''}（${c.partyRole || ''}${c.procedure ? '/' + c.procedure : ''}）`)
+      .join('；')}`)
+  }
+  if (e.records?.length) {
+    L.push(`工商记录（前 ${e.records.length} 条）：${e.records
+      .map((r: any) => `${r.occurDate || ''} ${r.title}${r.amount ? ' ' + r.amount + '万元' : ''}`)
+      .join('；')}`)
+  }
+  if (e.riskEvents?.length) {
+    L.push(`平台已登记风险事件（前 ${e.riskEvents.length} 条）：${e.riskEvents
+      .map((r: any) => `${r.foundDate} ${r.dimensionName} ${r.title}`)
+      .join('；')}`)
+  }
+  L.push('以上未列出的维度（行政处罚 / 欠税公告 / 经营异常 / 纳税信用等级 / 资质证书 / 舆情）平台未接入，报告中写「未获取」，不要调用工具去猜。')
+  return L.join('\n')
 }
 
 /* ============================================================
@@ -207,6 +314,23 @@ export default async function (fastify: FastifyInstance) {
     // 生成回复：优先大模型（注入平台实时数据），失败回退脚本回复
     let aiReply: string
     let llmUsed = false
+    // 企业名称识别：命中平台企业库即对本轮强制启用《企业风险溯源报告》技能
+    const skillEnt = SKILL_AGENTS.has(agentType) ? await detectEnterprise(message) : null
+    const dossier = skillEnt ? await buildEnterpriseDossier(skillEnt.id) : ''
+    const systemPrompt = skillEnt
+      ? [
+          AGENT_SYSTEM[agentType] || AGENT_SYSTEM.service,
+          '',
+          RISK_TRACING_SKILL,
+          '',
+          '【本轮已锁定报告主体】',
+          `${skillEnt.name}（统一社会信用代码 ${skillEnt.creditCode}）`,
+          '主体已由平台确认，不必再检索同名企业；请直接围绕该企业完整输出六部分报告。',
+          '',
+          dossier,
+        ].join('\n')
+      : AGENT_SYSTEM[agentType] || AGENT_SYSTEM.service
+    if (skillEnt) console.log(`[ai] 强制技能 enterprise-risk-tracing-report → ${skillEnt.name}`)
     if (llmConfigured()) {
       try {
         const ctx = await buildDataContext(agentType)
@@ -226,7 +350,7 @@ export default async function (fastify: FastifyInstance) {
           {
             role: 'system',
             content: [
-              AGENT_SYSTEM[agentType] || AGENT_SYSTEM.service,
+              systemPrompt,
               '',
               '【平台数据概览】',
               ctx,
@@ -257,7 +381,8 @@ export default async function (fastify: FastifyInstance) {
         const calledTools: string[] = []
         const toolResults: { name: string; text: string }[] = []
         const t0 = Date.now()
-        const SOFT_BUDGET_MS = 25000
+        // 整体软预算：常规 25s 收口；强制技能报告篇幅长，放宽到 40s
+        const SOFT_BUDGET_MS = skillEnt ? 40000 : 25000
 
         for (let round = 0; round < 3; round++) {
           const left = SOFT_BUDGET_MS - (Date.now() - t0)
@@ -270,7 +395,7 @@ export default async function (fastify: FastifyInstance) {
             // 最后一次调用只给剩余预算：超时抛错后直接走收口，不让用户干等
             msg = await llmChatWithTools(msgs, allTools, {
               timeoutMs: Math.max(8000, left),
-              maxTokens: 6000,
+              maxTokens: skillEnt ? 9000 : 6000,
             })
           } catch (llmErr: any) {
             console.warn('[ai] 工具轮调用失败/超时：', llmErr?.message || llmErr)
@@ -325,13 +450,13 @@ export default async function (fastify: FastifyInstance) {
           try {
             finalText = await llmChat(
               [
-                { role: 'system', content: AGENT_SYSTEM[agentType] || AGENT_SYSTEM.service },
+                { role: 'system', content: systemPrompt },
                 {
                   role: 'user',
                   content: `用户问题：${message}\n\n以下是刚从数据仓库查到的真实结果：\n\n${digest}\n\n请基于以上结果直接给出结论，不要再调用工具，不要提及"查询"过程本身。`,
                 },
               ],
-              { maxTokens: 6000 }
+              { maxTokens: skillEnt ? 9000 : 6000 }
             )
             console.log('[ai] 已强制收口生成结论')
           } catch (e: any) {
@@ -410,7 +535,15 @@ export default async function (fastify: FastifyInstance) {
       }
     }
 
-    return ok({ reply: aiReply, messages: JSON.parse(conv.messages), llm: llmUsed, files })
+    return ok({
+      reply: aiReply,
+      messages: JSON.parse(conv.messages),
+      llm: llmUsed,
+      files,
+      // 本轮实际启用的技能（null = 未触发）；前端可据此显示「企业风险溯源报告」标记
+      skill: skillEnt ? 'enterprise-risk-tracing-report' : null,
+      skillSubject: skillEnt ? { id: skillEnt.id, name: skillEnt.name, creditCode: skillEnt.creditCode } : null,
+    })
   })
 
   // 清空对话

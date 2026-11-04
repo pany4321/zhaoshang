@@ -663,28 +663,194 @@
     return M.ENTERPRISES.slice().sort(function (a, b) { return b.riskScore - a.riskScore; }).slice(0, n);
   }
 
+  /* ============ 强制技能：企业风险溯源报告（enterprise-risk-tracing-report） ============
+   * 企业洞察 / 风险研判两个智能体，只要用户给出了企业名称，就必须走本报告六部分框架：
+   *   一 基本信息概述 / 二 风险清单 / 三 分类与评价 / 四 风险突变时间线 / 五 风险识别 / 六 六维风险总结
+   * 判定理论「变化即风险」：只有 突变 / 恶化 / 集中 / 新增 / 缺失 五类变化才算风险；
+   * 长期稳定的基线、正向信号（增资、高企、发明专利）都不算风险。
+   * 取不到的数据一律写「未获取」，不推测、不编造。
+   * mode: 'insight' 收口偏发展建议；'risk' 收口偏处置建议。
+   */
+  function fw(v) {
+    if (v == null) return '未公示';
+    return Math.abs(v) >= 10000 ? (v / 10000).toFixed(2) + ' 亿元' : v + ' 万元';
+  }
+
+  function buildTracingReport(ent, mode) {
+    var ov = ent.overview || {};
+    var sh = ent.shareholders || [];
+    var dyn = ent.dynamics || [];
+    var yr = ov.yearly || {};
+    var years = yr.years || [];
+    var revs = yr.revenueWan || [];
+    var taxes = yr.taxWan || [];
+    var emps = yr.employees || [];
+    var records = ent.records || [];
+    var pledges = records.filter(function (r) { return /chattel|抵押|质押/.test(String(r.type || '') + String(r.title || '')); });
+    var n0 = revs.length ? revs[0] : null;
+    var n1 = revs.length ? revs[revs.length - 1] : null;
+    var grow = (n0 && n1) ? Math.round((n1 / n0 - 1) * 100) : null;
+    var shSorted = sh.slice().sort(function (a, b) { return (b.ratio || 0) - (a.ratio || 0); });
+    var topSh = shSorted.length ? shSorted[0] : null;
+    var out = [];
+
+    out.push('政信通团队 出品');
+    out.push('分析框架：公司治理 / 企业经营 / 企业财务 / 科技投入 / 政策与行业 / 舆情');
+    out.push('');
+    out.push('【' + ent.name + ' 企业风险溯源报告】');
+    out.push('');
+
+    /* 第一部分 */
+    out.push('**第一部分　企业基本信息概述**');
+    out.push('· 工商登记：统一社会信用代码 ' + (ent.creditCode || '未获取') +
+      '，成立于 ' + (ent.found || '未获取') + '，注册资本 ' + (ent.regCapitalFmt || ov.regCapital || '未获取') +
+      '，法定代表人 ' + (ent.legal || '未获取') + '。');
+    out.push('· 属地与行业：' + (ent.districtName || '未获取') + '，' + (ent.industryName || '未获取') +
+      '（国标：' + [ent.nationalIndustryL1, ent.nationalIndustry, ent.nationalIndustryL3].filter(Boolean).join(' / ') + '）' +
+      (ent.scale ? '，' + ent.scale : '') + '。');
+    if (topSh) {
+      var hold = topSh.ratio || 0;
+      out.push('· 实控人识别与控制路径：' + (hold >= 50
+        ? '第一大股东「' + topSh.name + '」持股 ' + hold + '%，构成控股股东，控制路径为该股东 → 本公司，控制关系清晰。'
+        : '第一大股东「' + topSh.name + '」持股 ' + hold + '%，未达绝对控股，股权相对分散，需关注一致行动关系（平台未收录）。'));
+      out.push('· 受益人：' + shSorted.slice(0, 4).map(function (s) {
+        return s.name + ' ' + (s.ratio || 0) + '%';
+      }).join('；') + '。其中机构股东按穿透受益计，自然人股东为直接持股受益；未收录持股平台穿透比例，深层受益权待补。');
+    } else {
+      out.push('· 实控人与受益人：股东结构未获取，无法认定实控人。');
+    }
+    out.push('· 稳定性判断：控制结构未见争夺记录，平台未收录变更沿革与高管被查处信息（未获取）；' +
+      '存续 ' + (ent.signDaysAgo ? Math.round(ent.signDaysAgo / 365) + ' 年' : '时长未获取') + '，经营连续性正常。');
+    out.push('· 股权结构：' + (shSorted.length
+      ? shSorted.map(function (s, i) { return (i + 1) + '. ' + s.name + ' ' + (s.ratio || 0) + '%'; }).join('　')
+      : '未获取') + '。');
+    out.push('· 高管信息：法定代表人 ' + (ent.legal || '未获取') + '；其他主要人员名录平台未收录（未获取）。');
+    out.push('');
+
+    /* 第二部分 */
+    out.push('**第二部分　风险清单**（扫描口径：风险监控清单；来源：水滴企信）');
+    out.push('· 司法执行：涉诉 ' + (ent.judicialCount == null ? '未获取' : ent.judicialCount + ' 件') +
+      '，被执行 ' + (ent.zhixingCount == null ? '未获取' : ent.zhixingCount + ' 件') +
+      '，失信 ' + (ent.shixinCount == null ? '未获取' : ent.shixinCount + ' 件') + '。');
+    out.push('· 招投标：投标/中标轨迹 ' + (ent.bidCount == null ? '未获取' : ent.bidCount + ' 条') + '。');
+    out.push('· 知识产权：专利 ' + (ent.patentCount == null ? '未获取' : ent.patentCount + ' 件') +
+      '（其中发明 ' + (ent.inventionCount == null ? '未获取' : ent.inventionCount + ' 件') + '）' +
+      '，商标 ' + (ent.trademarkCount == null ? '未获取' : ent.trademarkCount + ' 件') + '。');
+    out.push('· 担保与抵押：动产抵押/质押登记 ' + pledges.length + ' 笔' +
+      (pledges.length ? '（' + pledges.map(function (p) {
+        // detail 是 JSON 字符串，部分记录字段名为「抵押权人」/「质权人」
+        var who = null;
+        try {
+          var o = JSON.parse(String(p.detail || ''));
+          who = o['抵押权人'] || o['质权人'] || (o.data && (o.data['抵押权人'] || o.data['质权人'])) || null;
+        } catch (e) { /* 非 JSON，走正则兜底 */ }
+        if (!who) {
+          var mm = String(p.detail || '').match(/(?:抵押权人|质权人)["'：:\s]*([\u4e00-\u9fa5A-Za-z0-9（）()]{2,40})/);
+          who = mm ? mm[1] : null;
+        }
+        return (who || '抵押权人未获取') + (p.occurDate ? ' ' + p.occurDate : '');
+      }).join('；') + '）' : '') + '。');
+    out.push('· 未覆盖维度：行政处罚、欠税公告、经营异常、纳税信用等级、资质证书 — 平台当前样本未接入，标注为未获取。');
+    out.push('');
+
+    /* 第三部分 */
+    var need = [];
+    if (ent.zhixingCount) need.push('被执行 ' + ent.zhixingCount + ' 件（已进入强制执行，属当期损害）');
+    if (pledges.length) need.push('动产抵押 ' + pledges.length + ' 笔（或有负债，属隐性风险）');
+    var gapItems = (ent.commitments || []).filter(function (c) {
+      return c.promise && c.actual != null && c.actual / c.promise < 0.5;
+    });
+    if (gapItems.length) {
+      need.push('承诺兑现偏差：' + gapItems.map(function (c) {
+        return c.name + ' ' + Math.round(c.actual / c.promise * 100) + '%';
+      }).join('、') + '（约定与实际差距显著，需核实口径）');
+    }
+    out.push('**第三部分　分类与评价**');
+    out.push('· 需关注：' + (need.length ? need.join('；') + '。' : '无。'));
+    out.push('· 中性：涉诉 ' + (ent.judicialCount || 0) + ' 件、招投标 ' + (ent.bidCount || 0) +
+      ' 条 — 绝对量本身不构成风险，须看同比与案由结构（案由明细未获取）。');
+    out.push('· 正向：' + (ent.patentCount ? '专利 ' + ent.patentCount + ' 件' : '专利未获取') +
+      ((ent.tags && ent.tags.length) ? '；资质标签「' + ent.tags.join('」「') + '」' : '') + '。');
+    out.push('');
+
+    /* 第四部分 */
+    out.push('**第四部分　风险突变时间线**');
+    if (years.length && revs.length) {
+      out.push('| 年份 | 事件 | 变化识别 | 风险推断 |');
+      out.push('| --- | --- | --- | --- |');
+      for (var i = 1; i < years.length; i++) {
+        var d = revs[i - 1] ? Math.round((revs[i] / revs[i - 1] - 1) * 100) : null;
+        out.push('| ' + years[i] + ' | 营收 ' + fw(revs[i]) + '，纳税 ' + fw(taxes[i]) +
+          '，从业 ' + (emps[i] == null ? '未公示' : emps[i] + ' 人') + ' | ' +
+          (d == null ? '基线缺失' : (d >= 0 ? '同比增长 ' + d + '%' : '同比下降 ' + Math.abs(d) + '%')) + ' | ' +
+          (d != null && d <= -20 ? '收入断崖，属突变' : (d != null && d < 0 ? '小幅回落，观察是否持续' : '持续向好，非风险')) + ' |');
+      }
+    } else {
+      out.push('逐年经营序列未获取，无法构建趋势基线。');
+    }
+    if (dyn.length) {
+      out.push('');
+      out.push('近期事件：' + dyn.slice(0, 5).map(function (x) {
+        return x.date + ' ' + (x.type || '') + '—' + (x.text || '');
+      }).join('；') + '。');
+    }
+    out.push('');
+    out.push('阶段归纳：' + (grow != null && grow >= 0
+      ? '近 ' + years.length + ' 年营收累计增长 ' + grow + '%，未见治理突变或信用崩塌迹象，风险处于低位区间。'
+      : '经营序列未呈单调向上，需重点关注收入与纳税的同步变化。'));
+    out.push('');
+
+    /* 第五部分 */
+    out.push('**第五部分　风险识别**');
+    var drops = 0;
+    for (var k = 1; k < revs.length; k++) if (revs[k - 1] && revs[k] / revs[k - 1] <= 0.8) drops++;
+    out.push('· 突变：' + (drops ? '出现 ' + drops + ' 次同比降幅 ≥20% 的收入断崖。' : '无 — 营收序列未见断崖式下跌。'));
+    out.push('· 恶化：' + (taxes.length > 1 && taxes[taxes.length - 1] < taxes[0]
+      ? '纳税额较基期下降，需核实是否因经营收缩或税收优惠。' : '无 — 纳税与用工未见持续恶化。'));
+    out.push('· 集中：涉诉 ' + (ent.judicialCount || 0) + ' 件' +
+      ((ent.judicialCount || 0) >= 50 ? '，绝对量偏高，须按案由与时间分布拆分（劳动争议占比高则指向欠薪）。' : '，规模可控。'));
+    out.push('· 新增：' + (dyn.length ? '平台收录近期事件 ' + dyn.length + ' 条，以经营与创新类为主，未见新增负面事件。' : '无。'));
+    out.push('· 缺失：' + (ent.trademarkCount === 0 ? '商标 0 件（品牌资产缺失，弱负面）；' : '') +
+      '纳税信用等级、资质证书、行政处罚均未获取 — 按「应有而缺失即负面信号」处理，需补数后再定级。');
+    out.push('· 风险分级：' + levelName(ent.riskLevel) + '（综合 ' + ent.riskScore + ' 分）；' +
+      '高分维度：' + topRiskDims(ent) + '。');
+    out.push('');
+
+    /* 第六部分 */
+    out.push('**第六部分　六维风险总结**');
+    out.push('① 公司治理：' + (topSh && (topSh.ratio || 0) >= 50
+      ? '控制权集中（' + topSh.name + ' ' + topSh.ratio + '%），决策链条短，稳定性较好；'
+      : '股权较分散，需关注一致行动与决策效率；') + '变更沿革与高管查处记录未获取。');
+    out.push('② 企业经营：招投标 ' + (ent.bidCount || 0) + ' 条、被执行 ' + (ent.zhixingCount || 0) +
+      ' 件、失信 ' + (ent.shixinCount || 0) + ' 件；关联企业与子公司分工未获取，关联传导风险暂无法评估。');
+    out.push('③ 企业财务：营收 ' + (ov.revenue || '未公示') + '、净利 ' + (ent.netProfit == null ? '未公示' : fw(ent.netProfit)) +
+      '、总资产 ' + (ent.assetTotal == null ? '未公示' : fw(ent.assetTotal)) +
+      (ent.finYear ? '（' + ent.finYear + ' 年报）' : '') +
+      '；纳税信用等级未获取，A 级纳税人缺失按负面信号处理；现金流明细未公示。');
+    out.push('④ 企业科技投入：专利 ' + (ent.patentCount || 0) + ' 件（发明 ' + (ent.inventionCount || 0) + ' 件），' +
+      ((ent.patentCount || 0) > 0 ? '技术积累扎实；' : '技术积累薄弱；') +
+      '科创评分与资质证书未获取。');
+    out.push('⑤ 政策与行业：' + (ent.industryName || '行业未获取') + '，' +
+      ((ent.tags && ent.tags.indexOf('乡村振兴') >= 0) ? '契合乡村振兴政策方向；' : '') +
+      '行业准入与竞争格局未获取。');
+    out.push('⑥ 舆情：平台未接入舆情数据源（未获取）；无负面事件记录不等于无风险，属「缺失」而非「安全」。');
+    out.push('');
+    out.push('风险矩阵：治理 ' + (topSh && (topSh.ratio || 0) >= 50 ? '低' : '中低') +
+      ' ｜ 经营 ' + ((ent.zhixingCount || 0) + (ent.shixinCount || 0) > 3 ? '中' : '低') +
+      ' ｜ 财务 低（缺纳税信用） ｜ 科技 ' + ((ent.patentCount || 0) > 5 ? '低' : '中低') +
+      ' ｜ 政策 正向 ｜ 舆情 未获取');
+    out.push('综合判定：**' + levelName(ent.riskLevel) + '（' + ent.riskScore + ' 分）**。' + (mode === 'risk'
+      ? '处置建议：① 核实被执行案件的履行进度与金额；② 补取纳税信用等级、行政处罚与欠税数据后复核定级；③ 若涉诉案由以劳动争议为主，提前介入欠薪排查；④ 按常规频次纳入监测台账。'
+      : '发展建议：① 以现有发明专利为基础申报专精特新；② 补齐商标与品牌建设短板；③ 核实承诺兑现偏差的口径（是否为分期投资）；④ 依托乡村振兴政策争取产业化项目支持。'));
+    return out.join('\n');
+  }
+
   /* ---------------- 四个智能体的数据化回答 ---------------- */
 
   function answerInsight(q) {
     var ent = resolveEnterprise(q);
-    if (ent) {
-      var ov = ent.overview || {};
-      var op = ent.operation || {};
-      var rev = op.revenue || [];
-      var trend = (rev.length > 5 && rev[5] > rev[0]) ? '上升' : '回落';
-      return '【' + ent.name + ' 企业洞察报告】\n\n' +
-        '**基本概况**：成立于 ' + ent.found + '，注册资本 ' + (ov.regCapital || '—') + '，位于' + (ent.districtName || '—') +
-        '，属' + (ent.industryName || '—') + '行业' + (ent.scale ? '，' + ent.scale : '') +
-        '。从业人数 ' + (ov.employees == null ? '未公示' : ov.employees + ' 人') + '。\n\n' +
-        '**经营业绩**：年营收 ' + (ov.revenue || '—') + '，年纳税 ' + (ov.tax || '—') +
-        '，固定资产投资 ' + (ov.invest || '—') + '，净利润 ' + (ov.profit || '—') +
-        (rev.length > 5 ? '。近 6 个月营收呈' + trend + '趋势。' : '。') + '\n\n' +
-        '**风险评估**：综合风险指数 ' + ent.riskScore + ' 分（' + levelName(ent.riskLevel) +
-        '），主要风险维度：' + topRiskDims(ent) + '。\n\n' +
-        '**综合评价**：' + (ent.riskLevel === 'red' ? '风险较高，建议列为重点监测对象，加强日常预警与处置。'
-          : ent.riskLevel === 'orange' ? '存在一定风险隐患，建议持续跟踪经营变化，及时做好风险化解。'
-          : '经营状况总体良好，建议保持良性互动，推动企业做优做强。');
-    }
+    // 给定企业名称 → 强制走《企业风险溯源报告》六部分框架（技能硬约束）
+    if (ent) return buildTracingReport(ent, 'insight');
     var d = resolveDistrict(q);
     if (d) {
       var list = entOfDistrict(d);
@@ -737,22 +903,8 @@
 
   function answerRisk(q) {
     var ent = resolveEnterprise(q);
-    if (ent) {
-      return '【' + ent.name + ' 风险研判报告】\n\n' +
-        '**综合风险等级**：' + levelName(ent.riskLevel) + '（' + ent.riskScore + ' 分）\n\n' +
-        '**八维风险分值**：\n' +
-        M.RISK_DIMS.filter(function (d) { return d.weight > 0; }).map(function (d) {
-          var v = ent.risks[d.key] || 0;
-          var lv = v >= 65 ? '🔴' : v >= 45 ? '🟠' : v >= 25 ? '🟡' : '🔵';
-          return '  ' + lv + ' ' + d.name + '：' + v + ' 分（权重 ' + Math.round(d.weight * 100) + '%）';
-        }).join('\n') + '\n\n' +
-        '**主要风险点**：\n' + topRiskList(ent) + '\n\n' +
-        '**处置建议**：\n' +
-        '1. 建立企业风险监测台账，实施周监测、月研判；\n' +
-        '2. 约谈企业负责人，掌握经营困难，研究帮扶措施；\n' +
-        '3. 协调相关部门提前做好风险应对预案；\n' +
-        '4. 引导企业转型升级，提升抗风险能力。';
-    }
+    // 给定企业名称 → 强制走《企业风险溯源报告》六部分框架（技能硬约束）
+    if (ent) return buildTracingReport(ent, 'risk');
     var d = resolveDistrict(q);
     if (d) {
       var list = entOfDistrict(d).slice().sort(function (a, b) { return b.riskScore - a.riskScore; });
