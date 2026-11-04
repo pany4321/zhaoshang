@@ -516,205 +516,470 @@
     msgBox.scrollTop = msgBox.scrollHeight;
   }
 
-  function generateReply(agentKey, question) {
-    var ent = findEnterpriseInText(question);
-    var topEnts = M.ENTERPRISES.slice().sort(function(a,b){return b.overview.revenueWan-a.overview.revenueWan;}).slice(0,5);
-    var redEnts = M.ENTERPRISES.filter(function(e){return e.riskLevel==='red';});
+  /* ============================================================
+   * 本地推理引擎（离线演示模式）
+   * ------------------------------------------------------------
+   * 有后端时 sendMessage 优先调 /api/ai/chat（真大模型 + 平台实时数据）；
+   * 无后端（GitHub Pages 静态部署、本地直接打开 demo/index.html）时
+   * 由本引擎基于 MOCK 真实数据现场生成回答。
+   *
+   * 设计要点（2026-11-04 重写）：四个智能体都必须能"自由对话"——
+   * 旧版只对几个写死关键词有反应，非 insight 的三个智能体问什么都回同一段
+   * 固定菜单（例：风险智能体问"甘肃圣越农牧有什么风险"只回"我可以为您提供
+   * 风险分析服务…"），表现为"不能正常对话"。现改为：
+   *   ① 先做实体识别：企业（含简称）/ 区县 / 行业 / 风险等级 / 排名 / 政策；
+   *   ② 再按智能体职责组装**数据化**回答（数字全部来自 MOCK 实时数据）；
+   *   ③ 识别不到具体实体时，给出平台实况摘要 + 与职责相关的可问示例，
+   *      而不是一句空菜单。
+   * ============================================================ */
+  var ADMIN_PREFIX = /^(甘肃省|甘肃|庆阳市|庆阳|西峰区|庆城县|环县|华池县|合水县|正宁县|宁县|镇原县)/;
+  var ENT_SUFFIX = /(有限责任公司|股份有限公司|有限公司|集团公司|集团|公司|厂|场)$/;
 
-    // 新能源行业统计：兼容本地(newEnergy)与服务器(neequip)行业键，兜底汇总
-    var neInd = null;
-    M.INDUSTRIES.forEach(function(i){ if (i.key === 'newEnergy' || i.key === 'neequip') neInd = i; });
-    if (!neInd) neInd = { count: 0, revenue: 0 };
-
-    switch(agentKey) {
-      case 'insight':
-        if (ent) {
-          return '【' + ent.name + ' 企业洞察报告】\n\n' +
-            '📊 基本概况\n' +
-            '该企业成立于' + ent.found + '，注册资本' + ent.overview.regCapital + '，位于' + ent.districtName + '，属于' + ent.industryName + '行业。现有员工' + (ent.overview.employees == null ? '未公示' : ent.overview.employees + ' 人') + '。\n\n' +
-            '💰 经营业绩\n' +
-            '年营收' + ent.overview.revenue + '，年纳税' + ent.overview.tax + '，固定资产投资' + ent.overview.invest + '。近6个月营收呈' + (ent.operation.revenue[5] > ent.operation.revenue[0] ? '上升' : '下降') + '趋势。\n\n' +
-            '⚠️ 风险评估\n' +
-            '综合风险指数 ' + ent.riskScore + ' 分（' + M.LEVELS[ent.riskLevel].name + '）。主要风险维度：' + topRiskDims(ent) + '。\n\n' +
-            '🎯 综合评价\n' +
-            (ent.riskLevel === 'red' ? '该企业当前风险较高，建议重点关注，加强日常监测与预警。' :
-             ent.riskLevel === 'orange' ? '该企业存在一定风险隐患，建议持续跟踪经营变化，及时做好风险处置。' :
-             '该企业经营状况总体良好，建议继续保持良性互动，推动企业做优做强。') + '\n\n' +
-            '如需更详细的分析，请继续提问。';
-        }
-        if (question.indexOf('前5') >= 0 || question.indexOf('TOP5') >= 0 || question.indexOf('营收') >= 0) {
-          return '庆阳市营收 TOP5 企业：\n\n' +
-            topEnts.map(function(e,i){ return (i+1) + '. ' + e.name + '（' + e.overview.revenue + '）'; }).join('\n') +
-            '\n\n以上企业涵盖' + topEnts[0].industryName + '、' + topEnts[1].industryName + '等重点产业，是庆阳市工业经济的核心支撑力量。';
-        }
-        if (question.indexOf('新能源') >= 0 || question.indexOf('趋势') >= 0) {
-          return '【庆阳市新能源产业发展态势分析】\n\n' +
-            '1️⃣ 产业规模：全市新能源装备制造相关企业' + neInd.count + '家，年度营收' + neInd.revenue + '亿元。\n\n' +
-            '2️⃣ 发展优势：庆阳市风光资源富集，是国家重要的新能源基地。风电、光伏装机容量持续增长，储能、氢能等新兴业态加速布局。\n\n' +
-            '3️⃣ 重点企业：华能华池新能源有限公司、庆阳能源化工集团装备制造有限公司等骨干企业带动效应明显。\n\n' +
-            '4️⃣ 发展建议：围绕"源网荷储"一体化，延链补链强链，打造千亿级新能源产业集群。\n\n' +
-            '如需了解具体企业详情，请告诉我企业名称。';
-        }
-        return '好的，我可以为您分析企业情况。您可以：\n\n' +
-          '• 输入企业名称，获取深度洞察报告\n' +
-          '• 询问行业发展趋势\n' +
-          '• 了解 TOP 企业排名\n' +
-          '• 对比多家企业经营状况\n\n' +
-          '请问您想了解什么？';
-
-      case 'risk':
-        if (question.indexOf('重大风险') >= 0 || question.indexOf('red') >= 0 || question.indexOf('哪些') >= 0) {
-          return '【重大风险企业清单】\n\n' +
-            '当前全市重大风险（红色）企业共 ' + redEnts.length + ' 家：\n\n' +
-            redEnts.map(function(e,i){
-              return (i+1) + '. ' + e.name + '\n   风险指数：' + e.riskScore + ' 分\n   主要风险：' + topRiskDims(e);
-            }).join('\n\n') +
-            '\n\n⚠️ 建议：对以上企业加强高频监测，制定"一企一策"风险处置方案，定期开展风险会商。\n\n' +
-            '如需查看某家企业的详细风险分析，请告诉我企业名称。';
-        }
-        if (ent) {
-          return '【' + ent.name + ' 风险研判报告】\n\n' +
-            '🎯 综合风险等级：' + M.LEVELS[ent.riskLevel].name + '（' + ent.riskScore + ' 分）\n\n' +
-            '📊 九维风险分析：\n' +
-            M.RISK_DIMS.filter(function(d){return d.weight>0;}).map(function(d){
-              var v = ent.risks[d.key]||0;
-              var lv = v >= 65 ? '🔴' : v >= 45 ? '🟠' : v >= 25 ? '🟡' : '🔵';
-              return '  ' + lv + ' ' + d.name + '：' + v + ' 分（权重' + Math.round(d.weight*100) + '%）';
-            }).join('\n') + '\n\n' +
-            '⚠️ 主要风险点：\n' + topRiskList(ent) + '\n\n' +
-            '💡 处置建议：\n' +
-            '1. 建立企业风险监测台账，实施周监测、月研判\n' +
-            '2. 约谈企业负责人，了解经营困难，研究帮扶措施\n' +
-            '3. 协调相关部门，提前做好风险应对预案\n' +
-            '4. 引导企业转型升级，提升抗风险能力\n\n' +
-            '如需更深入的风险溯源分析，请继续提问。';
-        }
-        if (question.indexOf('新增') >= 0 || question.indexOf('近30天') >= 0 || question.indexOf('30天') >= 0) {
-          var newRisks = M.RISK_EVENTS.filter(function(e){ return e.daysAgo <= 30; });
-          return '【近 30 天风险事件统计】\n\n' +
-            '新增风险事件：' + newRisks.length + ' 件\n' +
-            '其中重大风险：' + newRisks.filter(function(e){return e.level==='red';}).length + ' 件\n' +
-            '较高风险：' + newRisks.filter(function(e){return e.level==='orange';}).length + ' 件\n\n' +
-            '主要风险类型分布：\n' +
-            '• 经营风险：' + Math.round(newRisks.length*0.3) + ' 件\n' +
-            '• 财务风险：' + Math.round(newRisks.length*0.25) + ' 件\n' +
-            '• 司法风险：' + Math.round(newRisks.length*0.15) + ' 件\n' +
-            '• 信用风险：' + Math.round(newRisks.length*0.15) + ' 件\n' +
-            '• 其他：' + Math.round(newRisks.length*0.15) + ' 件\n\n' +
-            '建议重点关注新增重大风险，及时开展处置工作。';
-        }
-        return '我可以为您提供风险分析服务。您可以：\n\n' +
-          '• 询问当前重大风险企业清单\n' +
-          '• 分析某家企业的风险详情\n' +
-          '• 了解近期新增风险事件\n' +
-          '• 获取风险处置建议\n\n' +
-          '请问您想了解哪方面的风险情况？';
-
-      case 'plan':
-        if (question.indexOf('招商方向') >= 0 || question.indexOf('重点') >= 0) {
-          return '【庆阳市重点招商方向】\n\n' +
-            '基于庆阳市资源禀赋、产业基础和发展规划，重点推进以下招商方向：\n\n' +
-            '1️⃣ 新能源及装备制造\n   依托风光资源优势，招引风电、光伏、储能、氢能及配套装备制造企业，打造千亿级新能源产业集群。\n\n' +
-            '2️⃣ 石油化工及新材料\n   发挥长庆油田资源优势，延伸石化产业链，招引精细化工、化工新材料项目。\n\n' +
-            '3️⃣ 数字经济\n   抢抓"东数西算"机遇，招引数据中心、云计算、人工智能、信创产业项目。\n\n' +
-            '4️⃣ 中医药及健康养老\n   依托"中国药都"品牌，招引中医药加工、生物制药、康养旅游项目。\n\n' +
-            '5️⃣ 现代农业及食品加工\n   围绕特色农产品，招引精深加工、冷链物流、品牌营销项目。\n\n' +
-            '6️⃣ 文化旅游\n   挖掘红色文化、岐黄文化、农耕文化，招引文旅融合项目。\n\n' +
-            '如需了解某一方向的具体目标企业，请告诉我。';
-        }
-        if (question.indexOf('新能源') >= 0 || question.indexOf('目标企业') >= 0) {
-          return '【新能源产业链目标企业推荐】\n\n' +
-            '🔹 整机及核心部件\n   金风科技、远景能源、明阳智能、阳光电源、隆基绿能、晶科能源等\n\n' +
-            '🔹 储能产业\n   宁德时代、比亚迪储能、国轩高科、亿纬锂能、鹏辉能源等\n\n' +
-            '🔹 氢能产业\n   亿华通、美锦能源、厚普股份、雪人股份等\n\n' +
-            '🔹 本地配套\n   线缆、塔筒、叶片、支架等配套企业\n\n' +
-            '💡 招商建议：\n   1. 以资源换产业，以市场换投资\n   2. 建设新能源装备制造产业园\n   3. 出台专项扶持政策\n   4. 开展产业链精准招商\n\n' +
-            '如需某类企业的详细名单和招商路径，请进一步说明。';
-        }
-        if (question.indexOf('数字经济') >= 0) {
-          return '【数字经济产业招商路径】\n\n' +
-          '1️⃣ 算力基础设施\n   依托全国一体化算力网络国家枢纽节点建设，招引大型数据中心、智算中心项目。\n\n' +
-          '2️⃣ 软件和信息技术服务\n   招引工业软件、行业应用、信创产业、网络安全企业。\n\n' +
-          '3️⃣ 人工智能\n   招引AI大模型、智能语音、计算机视觉、智能制造解决方案企业。\n\n' +
-          '4️⃣ 大数据产业\n   招引数据标注、数据交易、数据安全、大数据分析企业。\n\n' +
-          '目标企业：华为、腾讯、阿里、百度、科大讯飞、中科曙光、紫光集团等。\n\n' +
-          '招商策略：场景驱动招商，以庆阳丰富的应用场景吸引企业落地。';
-        }
-        return '我可以为您提供招商谋划服务。您可以：\n\n' +
-          '• 了解庆阳市重点招商方向\n' +
-          '• 获取某产业链目标企业推荐\n' +
-          '• 咨询招商策略和路径\n' +
-          '• 分析项目落地可行性\n\n' +
-          '请问您关注哪个产业方向？';
-
-      case 'service':
-        if (question.indexOf('高新技术') >= 0 || question.indexOf('高企') >= 0) {
-          return '【高新技术企业认定指南】\n\n' +
-            '📋 认定条件：\n' +
-            '1. 企业申请认定时须注册成立一年以上\n' +
-            '2. 拥有核心自主知识产权\n' +
-            '3. 属于国家重点支持的高新技术领域\n' +
-            '4. 科技人员占企业当年职工总数的比例不低于10%\n' +
-            '5. 研究开发费用占销售收入比例符合要求\n   • 5000万以下：≥5%\n   • 5000万-2亿：≥4%\n   • 2亿以上：≥3%\n' +
-            '6. 高新技术产品（服务）收入占企业同期总收入的比例不低于60%\n' +
-            '7. 企业创新能力评价达到相应要求\n\n' +
-            '📅 申报时间：每年5-9月（以当年通知为准）\n\n' +
-            '💰 政策支持：\n' +
-            '• 减按15%税率征收企业所得税\n' +
-            '• 研发费用加计扣除\n' +
-            '• 市级奖励资金\n' +
-            '• 项目申报优先支持\n\n' +
-            '如需协助申报，可联系科技局或通过平台提交诉求。';
-        }
-        if (question.indexOf('稳岗') >= 0 || question.indexOf('补贴') >= 0) {
-          return '【稳岗补贴申请指南】\n\n' +
-            '📋 申请条件：\n' +
-            '1. 依法参加失业保险并足额缴纳失业保险费\n' +
-            '2. 上年度未裁员或裁员率低于城镇调查失业率控制目标\n' +
-            '3. 企业生产经营活动符合国家及所在区域产业结构调整和环保政策\n\n' +
-            '💰 补贴标准：\n' +
-            '• 大型企业：按企业及其职工上年度实际缴纳失业保险费的50%返还\n' +
-            '• 中小微企业：按60%返还\n\n' +
-            '📝 申请材料：\n' +
-            '1. 稳岗补贴申请表\n' +
-            '2. 营业执照复印件\n' +
-            '3. 失业保险缴费证明\n' +
-            '4. 职工花名册\n\n' +
-            '📅 办理流程：线上申请 → 部门审核 → 公示 → 资金拨付\n\n' +
-            '办理时限：30个工作日\n\n' +
-            '您可以通过"甘快办"APP或人社部门官网在线申请。';
-        }
-        if (question.indexOf('诉求') >= 0 || question.indexOf('提交') >= 0) {
-          return '【企业诉求提交方式】\n\n' +
-            '您可以通过以下多种渠道提交企业诉求：\n\n' +
-            '1️⃣ 平台在线提交\n   在本平台"企业诉求"模块填写诉求表单，相关部门将在3个工作日内响应。\n\n' +
-            '2️⃣ 企业服务热线\n   拨打 12345 政务服务便民热线，选择"企业服务"专席。\n\n' +
-            '3️⃣ 企业联络员\n   每家重点企业配备 1 名服务联络员，可直接联系对接。\n\n' +
-            '4️⃣ 政企座谈会\n   定期组织政企面对面交流活动，现场协调解决问题。\n\n' +
-            '📊 诉求办理时限：\n' +
-            '• 一般诉求：5个工作日内答复\n' +
-            '• 复杂诉求：15个工作日内答复\n' +
-            '• 疑难诉求：挂牌督办，定期反馈进展\n\n' +
-            '请问您有什么具体诉求？我可以帮您登记。';
-        }
-        return '我是企业服务智能体，可以为您提供：\n\n' +
-          '• 政策咨询与解读\n' +
-          '• 办事流程指引\n' +
-          '• 申报条件查询\n' +
-          '• 诉求提交与跟踪\n' +
-          '• 惠企政策匹配\n\n' +
-          '请问有什么可以帮您？您也可以直接描述您遇到的问题。';
-
-      default:
-        return '您好，请问有什么可以帮您？';
-    }
+  /** 企业名核心字号：去掉行政区前缀与企业类型后缀（"甘肃圣越农牧发展有限公司"→"圣越农牧发展"） */
+  function entCore(name) {
+    var s = String(name || '').replace(ADMIN_PREFIX, '');
+    s = s.replace(ENT_SUFFIX, '');
+    return s;
   }
 
-  function findEnterpriseInText(text) {
-    for (var i = 0; i < M.ENTERPRISES.length; i++) {
-      if (text.indexOf(M.ENTERPRISES[i].name) >= 0) return M.ENTERPRISES[i];
+  /** 在企业池中识别被问到的企业：先全名，再核心字号（支持"圣越农牧""圣越"这类简称） */
+  function resolveEnterprise(text) {
+    var q = String(text || '');
+    var i, e, best = null, bestLen = 0;
+    for (i = 0; i < M.ENTERPRISES.length; i++) {
+      e = M.ENTERPRISES[i];
+      if (q.indexOf(e.name) >= 0) return e;
+    }
+    for (i = 0; i < M.ENTERPRISES.length; i++) {
+      e = M.ENTERPRISES[i];
+      var core = entCore(e.name);
+      if (core.length >= 2 && q.indexOf(core) >= 0 && core.length > bestLen) {
+        best = e; bestLen = core.length; continue;
+      }
+      // 弱匹配：用户只打了字号前 4 字（≥3 字才用，避免"庆阳""甘肃"这类通用词误中）
+      if (core.length >= 4 && q.indexOf(core.slice(0, 4)) >= 0 && bestLen < 4) {
+        best = e; bestLen = 4;
+      }
+    }
+    return best;
+  }
+
+  function resolveDistrict(text) {
+    var q = String(text || '');
+    for (var i = 0; i < M.DISTRICTS.length; i++) {
+      var d = M.DISTRICTS[i];
+      var short = String(d.name).replace(/[区县]$/, '');
+      if (q.indexOf(d.name) >= 0 || (short.length >= 2 && q.indexOf(short) >= 0)) return d;
     }
     return null;
+  }
+
+  function resolveIndustry(text) {
+    var q = String(text || '');
+    var hit = null;
+    for (var i = 0; i < M.INDUSTRIES.length; i++) {
+      var ind = M.INDUSTRIES[i];
+      var key = String(ind.name || '');
+      var short = key.replace(/与.*$/, '').replace(/(装备制造|制造|加工|创意|贸易|物流|服务|技术)$/, '');
+      if (q.indexOf(key) >= 0 || (short.length >= 2 && q.indexOf(short) >= 0)) {
+        if (!hit || key.length > hit.name.length) hit = ind;
+      }
+    }
+    return hit;
+  }
+
+  /** 区县主键：M.DISTRICTS 在 demo 引擎里可能是 id 或 key，两种都兼容 */
+  function distKey(d) {
+    return d ? (d.id || d.key || '') : '';
+  }
+
+  function entOfDistrict(d) {
+    var k = distKey(d);
+    if (!k) return [];
+    return M.ENTERPRISES.filter(function (e) { return e.district === k || e.districtId === k; });
+  }
+
+  function sumBy(list, f) {
+    return list.reduce(function (s, e) { return s + (Number(f(e)) || 0); }, 0);
+  }
+
+  function levelName(lv) { return (M.LEVELS[lv] || {}).name || lv; }
+
+  function riskBuckets(list) {
+    var b = { red: 0, orange: 0, yellow: 0, blue: 0 };
+    list.forEach(function (e) { if (b[e.riskLevel] != null) b[e.riskLevel]++; });
+    return b;
+  }
+
+  function bucketLine(list) {
+    var b = riskBuckets(list);
+    return '红色 ' + b.red + ' 家 / 橙色 ' + b.orange + ' 家 / 黄色 ' + b.yellow + ' 家 / 蓝色 ' + b.blue + ' 家';
+  }
+
+  /** 企业一行数据摘要，回答里复用 */
+  function entLine(e) {
+    var ov = e.overview || {};
+    return e.name + '（' + (e.districtName || '—') + '·' + (e.industryName || '—') + '，风险' +
+      e.riskScore + '分/' + levelName(e.riskLevel) + '，营收' + (ov.revenue || '—') +
+      '，纳税' + (ov.tax || '—') + '）';
+  }
+
+  /** 该区县的行业结构，取前 n */
+  function districtIndustryTop(list, n) {
+    var m = {};
+    list.forEach(function (e) {
+      var k = e.industryName || '未分类';
+      m[k] = m[k] || { n: 0, rev: 0 };
+      m[k].n++;
+      m[k].rev += Number((e.overview || {}).revenueWan) || 0;
+    });
+    return Object.keys(m).map(function (k) { return { name: k, n: m[k].n, rev: m[k].rev }; })
+      .sort(function (a, b) { return b.n - a.n || b.rev - a.rev; }).slice(0, n || 3);
+  }
+
+  /** 按企业标签 + 行业 + 规模匹配政策库 */
+  function matchPolicies(e, limit) {
+    var tags = (e.tags || []).join(' ');
+    var text = [e.name, e.industryName || '', tags, e.scale || ''].join(' ');
+    var keys = ['高新', '专精特新', '数据', '算力', '农业', '农副', '食品', '能源', '化工', '文旅',
+                '物流', '人才', '税收', '金融', '用地', '电价', '固投', '研发', '就业', '外资', '中小企业'];
+    var hitKeys = keys.filter(function (k) { return text.indexOf(k) >= 0; });
+    var lib = (M.POLICY_LIB || []);
+    var hits = lib.filter(function (p) {
+      var s = [p.name, p.type, p.tag, p.apply].join(' ');
+      return hitKeys.some(function (k) { return s.indexOf(k) >= 0; });
+    });
+    if (!hits.length) hits = lib.slice(0, limit || 3);
+    return hits.slice(0, limit || 5);
+  }
+
+  function topNByRevenue(n) {
+    return M.ENTERPRISES.slice().sort(function (a, b) {
+      return (Number((b.overview || {}).revenueWan) || 0) - (Number((a.overview || {}).revenueWan) || 0);
+    }).slice(0, n);
+  }
+
+  function topNByRisk(n) {
+    return M.ENTERPRISES.slice().sort(function (a, b) { return b.riskScore - a.riskScore; }).slice(0, n);
+  }
+
+  /* ---------------- 四个智能体的数据化回答 ---------------- */
+
+  function answerInsight(q) {
+    var ent = resolveEnterprise(q);
+    if (ent) {
+      var ov = ent.overview || {};
+      var op = ent.operation || {};
+      var rev = op.revenue || [];
+      var trend = (rev.length > 5 && rev[5] > rev[0]) ? '上升' : '回落';
+      return '【' + ent.name + ' 企业洞察报告】\n\n' +
+        '**基本概况**：成立于 ' + ent.found + '，注册资本 ' + (ov.regCapital || '—') + '，位于' + (ent.districtName || '—') +
+        '，属' + (ent.industryName || '—') + '行业' + (ent.scale ? '，' + ent.scale : '') +
+        '。从业人数 ' + (ov.employees == null ? '未公示' : ov.employees + ' 人') + '。\n\n' +
+        '**经营业绩**：年营收 ' + (ov.revenue || '—') + '，年纳税 ' + (ov.tax || '—') +
+        '，固定资产投资 ' + (ov.invest || '—') + '，净利润 ' + (ov.profit || '—') +
+        (rev.length > 5 ? '。近 6 个月营收呈' + trend + '趋势。' : '。') + '\n\n' +
+        '**风险评估**：综合风险指数 ' + ent.riskScore + ' 分（' + levelName(ent.riskLevel) +
+        '），主要风险维度：' + topRiskDims(ent) + '。\n\n' +
+        '**综合评价**：' + (ent.riskLevel === 'red' ? '风险较高，建议列为重点监测对象，加强日常预警与处置。'
+          : ent.riskLevel === 'orange' ? '存在一定风险隐患，建议持续跟踪经营变化，及时做好风险化解。'
+          : '经营状况总体良好，建议保持良性互动，推动企业做优做强。');
+    }
+    var d = resolveDistrict(q);
+    if (d) {
+      var list = entOfDistrict(d);
+      var top = districtIndustryTop(list, 3).map(function (x) { return x.name + ' ' + x.n + ' 家'; }).join('、');
+      return '【' + d.name + ' 产业画像】\n\n' +
+        '企业总数 **' + list.length + ' 家**，营收合计 **' + (sumBy(list, function (e) { return (e.overview || {}).revenueWan; }) / 10000).toFixed(1) + ' 亿元**，' +
+        '从业人数合计 ' + sumBy(list, function (e) { return (e.overview || {}).employees; }) + ' 人。\n\n' +
+        '行业结构：' + top + '。\n\n' +
+        '风险分布：' + bucketLine(list) + '。\n\n' +
+        '营收前三：' + topNByRevenueFrom(list, 3).map(function (e) { return e.name + '（' + (e.overview || {}).revenue + '）'; }).join('、') + '。';
+    }
+    var ind = resolveIndustry(q);
+    if (ind) {
+      var lst = M.ENTERPRISES.filter(function (e) { return e.industryName === ind.name; });
+      var avg = lst.length ? Math.round(sumBy(lst, function (e) { return e.riskScore; }) / lst.length) : 0;
+      return '【' + ind.name + ' 产业分析】\n\n' +
+        '企业 **' + lst.length + ' 家**，营收合计 **' + (sumBy(lst, function (e) { return (e.overview || {}).revenueWan; }) / 10000).toFixed(1) + ' 亿元**，' +
+        '平均风险分 **' + avg + ' 分**。\n\n' +
+        '风险分布：' + bucketLine(lst) + '。\n\n' +
+        '代表企业：' + topNByRevenueFrom(lst, 3).map(function (e) { return e.name + '（营收' + (e.overview || {}).revenue + '，风险' + e.riskScore + '分）'; }).join('、') + '。';
+    }
+    if (/前\s*\d|top|排名|排行|营收|最大|龙头/i.test(q)) {
+      var top5 = topNByRevenue(5);
+      return '【营收 TOP5 企业】\n\n' + top5.map(function (e, i) {
+        return (i + 1) + '. ' + entLine(e);
+      }).join('\n') + '\n\n这 5 家覆盖' + top5[0].industryName + '、' + (top5[1] || {}).industryName +
+        '等重点产业，是全市工业经济的核心支撑。';
+    }
+    if (/新能源|趋势|态势/.test(q)) {
+      var ne = null;
+      M.INDUSTRIES.forEach(function (i) { if (i.key === 'newEnergy' || i.key === 'neequip') ne = i; });
+      var neList = M.ENTERPRISES.filter(function (e) { return e.industry === 'neequip' || e.industry === 'newEnergy'; });
+      return '【新能源产业态势】\n\n' +
+        '1. 产业规模：相关企业 ' + (ne ? ne.count : neList.length) + ' 家，营收合计 ' +
+        (sumBy(neList, function (e) { return (e.overview || {}).revenueWan; }) / 10000).toFixed(1) + ' 亿元。\n\n' +
+        '2. 代表企业：' + neList.slice(0, 4).map(function (e) { return e.name; }).join('、') + '。\n\n' +
+        '3. 发展条件：庆阳风光资源富集，是国家重要新能源基地，风电、光伏装机持续增长。\n\n' +
+        '4. 建议：围绕"源网荷储"一体化延链补链，优先补齐装备制造与储能环节。';
+    }
+    // 兜底：给平台实况 + 可问示例，不留空菜单
+    var all = M.ENTERPRISES;
+    return '当前平台入库 **' + all.length + ' 家企业**，营收合计 **' +
+      (sumBy(all, function (e) { return (e.overview || {}).revenueWan; }) / 10000).toFixed(1) + ' 亿元**，' +
+      '风险分布：' + bucketLine(all) + '。\n\n' +
+      '可以这样问我：\n' +
+      '· “甘肃圣越农牧的经营情况怎么样”（企业洞察报告）\n' +
+      '· “镇原县的产业结构如何”（区县画像）\n' +
+      '· “营收排名前五的企业有哪些”（排名）';
+  }
+
+  function answerRisk(q) {
+    var ent = resolveEnterprise(q);
+    if (ent) {
+      return '【' + ent.name + ' 风险研判报告】\n\n' +
+        '**综合风险等级**：' + levelName(ent.riskLevel) + '（' + ent.riskScore + ' 分）\n\n' +
+        '**八维风险分值**：\n' +
+        M.RISK_DIMS.filter(function (d) { return d.weight > 0; }).map(function (d) {
+          var v = ent.risks[d.key] || 0;
+          var lv = v >= 65 ? '🔴' : v >= 45 ? '🟠' : v >= 25 ? '🟡' : '🔵';
+          return '  ' + lv + ' ' + d.name + '：' + v + ' 分（权重 ' + Math.round(d.weight * 100) + '%）';
+        }).join('\n') + '\n\n' +
+        '**主要风险点**：\n' + topRiskList(ent) + '\n\n' +
+        '**处置建议**：\n' +
+        '1. 建立企业风险监测台账，实施周监测、月研判；\n' +
+        '2. 约谈企业负责人，掌握经营困难，研究帮扶措施；\n' +
+        '3. 协调相关部门提前做好风险应对预案；\n' +
+        '4. 引导企业转型升级，提升抗风险能力。';
+    }
+    var d = resolveDistrict(q);
+    if (d) {
+      var list = entOfDistrict(d).slice().sort(function (a, b) { return b.riskScore - a.riskScore; });
+      var risky = list.filter(function (e) { return e.riskScore >= 45; });
+      return '【' + d.name + ' 风险分布】\n\n' +
+        '企业 ' + list.length + ' 家，' + bucketLine(list) + '。\n\n' +
+        '高风险（≥45 分）企业 ' + risky.length + ' 家：\n' +
+        (risky.length ? risky.slice(0, 6).map(function (e, i) {
+          return (i + 1) + '. ' + entLine(e) + '，高分维度：' + topRiskDims(e);
+        }).join('\n') : '  无') + '\n\n' +
+        (risky.length ? '建议对上述企业开展"一企一策"核查，红色企业 24 小时内派单。'
+          : '该区县整体风险可控，保持季度常规巡检即可。');
+    }
+    var ind = resolveIndustry(q);
+    if (ind) {
+      var il = M.ENTERPRISES.filter(function (e) { return e.industryName === ind.name; })
+        .sort(function (a, b) { return b.riskScore - a.riskScore; });
+      var avg = il.length ? Math.round(sumBy(il, function (e) { return e.riskScore; }) / il.length) : 0;
+      return '【' + ind.name + ' 行业风险】\n\n' +
+        '企业 ' + il.length + ' 家，平均风险分 **' + avg + ' 分**，' + bucketLine(il) + '。\n\n' +
+        '风险排序（前 5）：\n' + il.slice(0, 5).map(function (e, i) {
+          return (i + 1) + '. ' + entLine(e) + '，高分维度：' + topRiskDims(e);
+        }).join('\n');
+    }
+    if (/新增|近\s*30\s*天|30\s*天|近期/.test(q)) {
+      var nr = (M.RISK_EVENTS || []).filter(function (e) { return (e.daysAgo || 0) <= 30; });
+      return '【近 30 天新增风险事件】\n\n' +
+        '新增 **' + nr.length + ' 件**，其中红色 ' + nr.filter(function (e) { return e.level === 'red'; }).length +
+        ' 件、橙色 ' + nr.filter(function (e) { return e.level === 'orange'; }).length + ' 件。\n\n' +
+        '建议：新增重大风险 24 小时内派单核查，橙色 72 小时内约谈企业。';
+    }
+    if (/红色|重大风险|高风险|哪些|清单/.test(q) || !q) {
+      var red = M.ENTERPRISES.filter(function (e) { return e.riskLevel === 'red'; })
+        .sort(function (a, b) { return b.riskScore - a.riskScore; });
+      var orange = M.ENTERPRISES.filter(function (e) { return e.riskLevel === 'orange'; });
+      return '【重大风险企业清单】\n\n' +
+        '全市 88 家企业风险分布：' + bucketLine(M.ENTERPRISES) + '。\n\n' +
+        '红色（≥65 分）共 **' + red.length + ' 家**：\n' +
+        red.map(function (e, i) {
+          return (i + 1) + '. ' + e.name + '（' + e.districtName + '，' + e.riskScore + ' 分，主要风险：' + topRiskDims(e) + '）';
+        }).join('\n') +
+        '\n\n橙色（45-64 分）共 **' + orange.length + ' 家**，可在风险预警页按等级筛选查看。\n\n' +
+        '建议：红色企业 24 小时内派单核查，橙色 72 小时内约谈，黄/蓝按月度跟踪。';
+    }
+    // 兜底
+    var top = topNByRisk(3);
+    return '全市 **' + M.ENTERPRISES.length + ' 家企业**风险分布：' + bucketLine(M.ENTERPRISES) + '。\n\n' +
+      '当前综合分最高的 3 家：\n' + top.map(function (e, i) {
+        return (i + 1) + '. ' + entLine(e) + '，高分维度：' + topRiskDims(e);
+      }).join('\n') + '\n\n' +
+      '可以这样问我：\n' +
+      '· “甘肃圣越农牧有什么风险”（单企业研判）\n' +
+      '· “宁县的风险企业有哪些”（区县风险）\n' +
+      '· “近 30 天新增了哪些风险事件”';
+  }
+
+  function answerPlan(q) {
+    var d = resolveDistrict(q);
+    var ind = resolveIndustry(q);
+    var ent = resolveEnterprise(q);
+
+    if (ent) {
+      var peers = M.ENTERPRISES.filter(function (e) { return e.industryName === ent.industryName; });
+      return '【' + ent.name + ' 招商价值研判】\n\n' +
+        '**产业定位**：' + (ent.industryName || '—') + '，' + (ent.districtName || '—') +
+        '，' + (ent.scale || '—') + '，' + (ent.isKey ? '**已列为重点企业**' : '非重点企业') + '。\n\n' +
+        '**经营体量**：营收 ' + ((ent.overview || {}).revenue || '—') + '，纳税 ' + ((ent.overview || {}).tax || '—') +
+        '，从业 ' + ((ent.overview || {}).employees == null ? '未公示' : (ent.overview || {}).employees + ' 人') + '。\n\n' +
+        '**产业链位置**：同行业全市共 ' + peers.length + ' 家，营收合计 ' +
+        (sumBy(peers, function (e) { return (e.overview || {}).revenueWan; }) / 10000).toFixed(1) + ' 亿元。\n\n' +
+        '**服务策略**：' + (ent.riskScore >= 45
+          ? '先化解风险（' + topRiskDims(ent) + '），再谈扩产与配套招引。'
+          : '经营稳健，可作为产业链招商的本地承接载体，围绕其上下游做补链招引。');
+    }
+    if (d) {
+      var list = entOfDistrict(d);
+      var top = districtIndustryTop(list, 3);
+      return '【' + d.name + ' 招商基础】\n\n' +
+        '企业 ' + list.length + ' 家，营收合计 ' + (sumBy(list, function (e) { return (e.overview || {}).revenueWan; }) / 10000).toFixed(1) + ' 亿元。\n\n' +
+        '主导产业：' + top.map(function (x) { return x.name + '（' + x.n + ' 家）'; }).join('、') + '。\n\n' +
+        '**招商方向建议**：\n' +
+        '1. 围绕' + (top[0] ? top[0].name : '主导产业') + '做延链补链，优先招引上下游配套；\n' +
+        '2. 存量企业中风险较高的（' + riskBuckets(list).red + ' 家红色）先行纾困，避免招商载体流失；\n' +
+        '3. 结合本地资源禀赋设计场景招商，用市场换投资。';
+    }
+    if (ind) {
+      var il = M.ENTERPRISES.filter(function (e) { return e.industryName === ind.name; });
+      return '【' + ind.name + ' 产业链招商方案】\n\n' +
+        '**本地基础**：企业 ' + il.length + ' 家，营收 ' + (sumBy(il, function (e) { return (e.overview || {}).revenueWan; }) / 10000).toFixed(1) + ' 亿元。\n\n' +
+        '**招引重点**：\n' +
+        '· 补链：本地缺失的关键环节（核心零部件、精深加工、检测认证）；\n' +
+        '· 强链：现有龙头企业的扩产与技改项目；\n' +
+        '· 延链：下游应用与品牌渠道。\n\n' +
+        '**招商策略**：产业链招商 + 场景招商 + 基金招商，配套固投补贴与要素保障。\n\n' +
+        '**本地承接载体**：' + il.slice(0, 3).map(function (e) { return e.name; }).join('、') + '。';
+    }
+    if (/新能源/.test(q)) {
+      return '【新能源产业链招商方案】\n\n' +
+        '一、目标方向：光伏、风电、储能、氢能及配套装备\n' +
+        '二、本地基础：' + M.ENTERPRISES.filter(function (e) { return e.industry === 'neequip' || e.industry === 'newEnergy'; }).length + ' 家相关企业\n' +
+        '三、招引重点：整机与核心部件、储能系统集成、氢能装备、线缆塔筒等配套\n' +
+        '四、招商策略：以资源换产业、以市场换投资，建设新能源装备产业园\n' +
+        '五、政策配套：固投补贴 + 电价优惠 + 场景开放';
+    }
+    if (/数字经济|数据|算力/.test(q)) {
+      return '【数据信息产业招商方案】\n\n' +
+        '一、目标方向：算力中心、大数据、人工智能、信创\n' +
+        '二、本地基础：软件与信息技术企业 ' + M.ENTERPRISES.filter(function (e) { return e.industry === 'software'; }).length + ' 家\n' +
+        '三、招商策略：算力资源换产业 + 场景驱动 + 人才政策\n' +
+        '四、落地载体：大数据产业园、数字经济产业园\n\n' +
+        '建议从算力中心项目切入，带动上下游生态企业集聚。';
+    }
+    if (/农业|农牧|食品/.test(q)) {
+      return '【现代农业招商方案】\n\n' +
+        '一、目标方向：农产品深加工、智慧农业、预制菜、种业\n' +
+        '二、本地基础：农副食品加工企业 ' + M.ENTERPRISES.filter(function (e) { return e.industry === 'agrifood'; }).length + ' 家\n' +
+        '三、招商策略：资源禀赋招商 + 产业链招商（庆阳苹果、小杂粮、肉羊）\n' +
+        '四、重点环节：屠宰及肉类加工、果蔬精深加工、冷链物流';
+    }
+    // 兜底：真实产业格局 + 可问示例
+    var byInd = {};
+    M.ENTERPRISES.forEach(function (e) {
+      var k = e.industryName || '未分类';
+      byInd[k] = byInd[k] || { n: 0, rev: 0 };
+      byInd[k].n++;
+      byInd[k].rev += Number((e.overview || {}).revenueWan) || 0;
+    });
+    var rank = Object.keys(byInd).map(function (k) { return { k: k, n: byInd[k].n, rev: byInd[k].rev }; })
+      .sort(function (a, b) { return b.rev - a.rev; });
+    return '庆阳市现有产业格局（按营收排序）：\n' +
+      rank.slice(0, 6).map(function (x, i) {
+        return (i + 1) + '. ' + x.k + '：' + x.n + ' 家，营收 ' + (x.rev / 10000).toFixed(1) + ' 亿元';
+      }).join('\n') + '\n\n' +
+      '可以这样问我：\n' +
+      '· “新能源产业怎么招”（产业链方案）\n' +
+      '· “镇原县的招商基础如何”（区县画像）\n' +
+      '· “甘肃圣越农牧的招商价值”（单企业）';
+  }
+
+  function answerService(q) {
+    var ent = resolveEnterprise(q);
+    if (ent) {
+      var pols = matchPolicies(ent, 5);
+      return '【' + ent.name + ' 政策匹配】\n\n' +
+        '**企业画像**：' + (ent.districtName || '—') + '·' + (ent.industryName || '—') +
+        '，' + (ent.scale || '—') + '，' + (ent.overview || {}).regCapital +
+        '，从业 ' + ((ent.overview || {}).employees == null ? '未公示' : (ent.overview || {}).employees + ' 人') +
+        (ent.tags && ent.tags.length ? '，标签：' + ent.tags.join('、') : '') + '。\n\n' +
+        '**可关注政策 ' + pols.length + ' 条**：\n' +
+        pols.map(function (p, i) {
+          return (i + 1) + '. 《' + p.name + '》（' + p.level + '·' + p.dept + '）\n   ' + p.apply;
+        }).join('\n') + '\n\n' +
+        '**下一步**：可携带营业执照、财务报表、知识产权证明到对应主管部门申报；平台可代为登记诉求并跟踪办理进度。';
+    }
+    if (/高新|高企/.test(q)) {
+      return '【高新技术企业认定指南】\n\n' +
+        '📋 认定条件：\n' +
+        '1. 注册成立一年以上；\n2. 拥有核心自主知识产权；\n3. 属于国家重点支持的高新技术领域；\n' +
+        '4. 科技人员占比不低于 10%；\n5. 研发费用占销售收入比例达标（5000 万以下≥5%，5000 万-2 亿≥4%，2 亿以上≥3%）；\n' +
+        '6. 高新技术产品收入占比不低于 60%。\n\n' +
+        '📅 申报时间：每年 5-9 月（以当年通知为准）\n\n' +
+        '💰 政策支持：减按 15% 征收企业所得税、研发费用加计扣除、市级奖励资金。';
+    }
+    if (/稳岗|补贴|返还/.test(q)) {
+      return '【稳岗返还补贴】\n\n' +
+        '📋 条件：依法参保并足额缴费；上年度未裁员或裁员率低于控制目标；生产经营符合产业与环保政策。\n\n' +
+        '💰 标准：大型企业按上年度实际缴纳失业保险费的 50% 返还，中小微企业 60%。\n\n' +
+        '📝 材料：申请表、营业执照、失业保险缴费证明、职工花名册。\n\n' +
+        '📅 流程：线上申请 → 部门审核 → 公示 → 资金拨付，约 30 个工作日。';
+    }
+    if (/政策|匹配|申报|奖补/.test(q)) {
+      var lib = M.POLICY_LIB || [];
+      var byType = {};
+      lib.forEach(function (p) { byType[p.type] = (byType[p.type] || 0) + 1; });
+      return '【平台政策库】共 **' + lib.length + ' 条**\n\n' +
+        Object.keys(byType).map(function (t) { return '· ' + t + '类 ' + byType[t] + ' 条'; }).join('\n') + '\n\n' +
+        '代表性政策：\n' + lib.slice(0, 6).map(function (p, i) {
+          return (i + 1) + '. 《' + p.name + '》（' + p.level + '·' + p.dept + '）：' + p.apply;
+        }).join('\n') + '\n\n' +
+        '告诉我企业名称，我可以按行业、规模、标签做具体匹配。';
+    }
+    if (/诉求|投诉|办理|办事/.test(q)) {
+      return '【企业诉求提交与办事指引】\n\n' +
+        '提交渠道：\n1. 平台"企业诉求"模块在线填报（3 个工作日内响应）；\n' +
+        '2. 12345 政务服务热线企业服务专席；\n3. 重点企业联络员一对一对接；\n4. 政企座谈会现场协调。\n\n' +
+        '办理时限：一般诉求 5 个工作日，复杂诉求 15 个工作日，疑难诉求挂牌督办。';
+    }
+    // 兜底：政策库实况 + 可问示例
+    var lib2 = M.POLICY_LIB || [];
+    return '平台政策库现有 **' + lib2.length + ' 条**惠企政策，覆盖' +
+      (function () {
+        var s = {};
+        lib2.forEach(function (p) { s[p.type] = 1; });
+        return Object.keys(s).join('、');
+      })() + '等类别。\n\n' +
+      '可以这样问我：\n' +
+      '· “甘肃圣越农牧能申报哪些政策”（按企业匹配）\n' +
+      '· “高新技术企业怎么认定”\n' +
+      '· “稳岗补贴怎么申请”\n' +
+      '· “企业诉求怎么提交”';
+  }
+
+  /** 区县内按营收取前 n（不排序原数组） */
+  function topNByRevenueFrom(list, n) {
+    return list.slice().sort(function (a, b) {
+      return (Number((b.overview || {}).revenueWan) || 0) - (Number((a.overview || {}).revenueWan) || 0);
+    }).slice(0, n);
+  }
+
+  function generateReply(agentKey, question) {
+    var q = String(question || '').trim();
+    try {
+      if (agentKey === 'insight') return answerInsight(q);
+      if (agentKey === 'risk') return answerRisk(q);
+      if (agentKey === 'plan') return answerPlan(q);
+      if (agentKey === 'service') return answerService(q);
+    } catch (err) {
+      // 本地推理兜底：宁可给保守回答，也不能让对话卡死
+      return '您的问题我已记录，但本地数据推理遇到异常：' + (err && err.message ? err.message : err) +
+        '。可以换个问法，或指定具体企业名称再试一次。';
+    }
+    return '您好，请问有什么可以帮您？';
+  }
+
+  /* 兼容旧调用点：findEnterpriseInText 已被 resolveEnterprise 取代 */
+  function findEnterpriseInText(text) {
+    return resolveEnterprise(text);
   }
 
   function topRiskDims(e) {
