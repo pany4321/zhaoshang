@@ -84,6 +84,26 @@
     if (!msg || !msg.content) return;
     var agent = agents.filter(function (a) { return a.key === currentAgent; })[0] || agents[0];
     var base = (agent ? agent.name : 'AI回答') + '-' + dlStamp();
+
+    // PDF：交服务端渲染（中文字体子集化，50–200KB/份），失败明确提示而不是静默
+    if (kind === 'pdf') {
+      var plain = U.mdPlain(msg.content).split('\n').filter(function (x) { return x.trim(); });
+      var subtitle = (plain[0] || '').replace(/【|】/g, '').slice(0, 46);
+      C.toast('正在生成 PDF…', 'info');
+      U.exportAnswer({
+        format: 'pdf',
+        title: (agent ? agent.name : 'AI') + '分析报告',
+        subtitle: subtitle,
+        meta: ['智能体：' + (agent ? agent.name : 'AI'), '生成时间：' + U.fmtDateTime(new Date()), '数据来源：平台实时数据'],
+        markdown: msg.content
+      }).then(function (name) {
+        C.toast('已生成 PDF：' + name, 'success');
+      }).catch(function (e) {
+        C.toast((e && e.message) || 'PDF 导出失败', 'warning');
+      });
+      return;
+    }
+
     if (kind === 'csv') {
       var t = aiExtractTable(msg.content);
       if (!t) { C.toast('这条回答里没有可导出的表格', 'warning'); return; }
@@ -93,6 +113,42 @@
     }
     downloadTextFile(base + '.md', msg.content, 'text/markdown');
     C.toast('已导出 Markdown 文件', 'success');
+  }
+
+  /** 附件卡片：服务端随回答返回的文件（files[]）或模型自己给出的文件链接 */
+  function fileCardHtml(f, i, fromLink) {
+    var name = f.name || '附件';
+    var ext = String(f.kind || (name.split('.').pop() || 'file')).toLowerCase();
+    var tag = ext === 'docx' || ext === 'doc' ? 'DOC' : ext === 'pdf' ? 'PDF' : ext === 'xlsx' || ext === 'csv' ? 'XLS' : 'FILE';
+    var kb = '';
+    if (f.size) kb = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(f.size / 1024)) + ' KB';
+    return '<button class="msg-file" data-file-idx="' + i + '"' + (fromLink ? ' data-file-link="1"' : '') +
+        ' title="点击下载 ' + U.esc(name) + '">' +
+      '<span class="mf-ico ' + ext + '">' + tag + '</span>' +
+      '<span class="mf-meta">' +
+        '<span class="mf-name">' + U.esc(name) + '</span>' +
+        '<span class="mf-sub">' + ext.toUpperCase() + (kb ? ' · ' + kb : '') + ' · 点击下载</span>' +
+      '</span>' +
+      '<span class="mf-dl" aria-hidden="true">↓</span>' +
+    '</button>';
+  }
+
+  function fileCardsHtml(msg) {
+    var list = (msg && msg.files) || [];
+    var html = list.map(function (f, i) { return fileCardHtml(f, i, false); }).join('');
+    // 模型在正文里直接给出 .pdf/.docx 链接时，也转成同款卡片（原生链接在对话气泡里不可点）
+    var links = U.mdFileLinks(msg && msg.content);
+    if (links.length) {
+      var seen = {};
+      html += links.filter(function (l) {
+        if (seen[l.url]) return false;
+        seen[l.url] = 1;
+        return !list.some(function (f) { return f.name === l.name; });
+      }).map(function (l, i) {
+        return fileCardHtml({ name: l.name, kind: l.ext, url: l.url }, list.length + i, true);
+      }).join('');
+    }
+    return html ? '<div class="msg-files">' + html + '</div>' : '';
   }
 
   /* ------------------------------------------------------------
@@ -120,7 +176,12 @@
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     }).then(function (j) {
-      if (j && j.code === 0 && j.data && j.data.reply) return String(j.data.reply);
+      if (j && j.code === 0 && j.data && j.data.reply) {
+        return {
+          reply: String(j.data.reply),
+          files: Array.isArray(j.data.files) ? j.data.files : []
+        };
+      }
       throw new Error((j && j.msg) || '返回格式异常');
     });
   }
@@ -245,7 +306,33 @@
     var dlBox = U.$('#aiMessages');
     if (dlBox) {
       dlBox.addEventListener('click', function (e) {
-        var btn = e.target && e.target.closest ? e.target.closest('.msg-tool') : null;
+        var t = e.target;
+        if (!t || !t.closest) return;
+        // 附件卡片：服务端文件（files[]）或回答里给出的文件链接
+        var card = t.closest('.msg-file');
+        if (card) {
+          var msgNode = t.closest('.msg');
+          var idx2 = msgNode ? Array.prototype.indexOf.call(dlBox.querySelectorAll('.msg'), msgNode) : -1;
+          var m2 = (conversations[currentAgent] || [])[idx2];
+          var fi = +card.getAttribute('data-file-idx');
+          var f2 = null;
+          if (card.getAttribute('data-file-link') === '1') {
+            var links = U.mdFileLinks(m2 && m2.content);
+            var offset = ((m2 && m2.files) || []).length;
+            f2 = links[fi - offset];
+          } else {
+            f2 = m2 && m2.files ? m2.files[fi] : null;
+          }
+          if (!f2) { C.toast('附件已失效，请重新提问', 'warning'); return; }
+          C.toast('正在下载…', 'info');
+          U.downloadAttachment(f2.url, f2.name).then(function () {
+            C.toast('已下载 ' + (f2.name || '附件'), 'success');
+          }).catch(function (err) {
+            C.toast((err && err.message) || '下载失败', 'warning');
+          });
+          return;
+        }
+        var btn = t.closest('.msg-tool');
         if (!btn) return;
         downloadAiAnswer(+btn.getAttribute('data-idx'), btn.getAttribute('data-dl'));
       });
@@ -302,9 +389,11 @@
         '<div class="msg-name" style="display:flex;align-items:baseline;gap:8px;"><span>' + name + '</span>' +
           (time ? '<span style="font-size:10px;color:#CBD5E1;font-weight:400;">' + time + '</span>' : '') + '</div>' +
         contentHtml +
+        (!isUser && msg.type !== 'thinking' ? fileCardsHtml(msg) : '') +
         (!isUser && msg.type !== 'thinking' && msg.content
           ? '<div class="msg-tools">' +
               '<button class="msg-tool" data-dl="md" data-idx="' + idx + '" title="把这条回答保存为 Markdown 文件">下载 MD</button>' +
+              '<button class="msg-tool" data-dl="pdf" data-idx="' + idx + '" title="把这条回答排版成 A4 PDF 下载">下载 PDF</button>' +
               (aiExtractTable(msg.content)
                 ? '<button class="msg-tool" data-dl="csv" data-idx="' + idx + '" title="把回答中的表格导出为 CSV">下载表格 CSV</button>'
                 : '') +
@@ -358,11 +447,15 @@
       refreshMessages();
 
       // 优先真实大模型；失败（离线/超时/未登录）回退本地预脚本回复
-      callAI(currentAgent, text).then(function(reply){
+      callAI(currentAgent, text).then(function(res){
+        var reply = res && res.reply;
         if (!reply || !String(reply).trim()) throw new Error('大模型返回空内容');
+        // 附件先挂到消息上：打字过程只更新正文，打完 refreshMessages 才会渲染卡片
+        msg.files = (res && res.files) || [];
         typeOut(msg, String(reply));
       }).catch(function(err){
         console.warn('[aidemo] 大模型不可用，回退本地回复：', err && err.message ? err.message : err);
+        msg.files = [];
         var fallback;
         try {
           fallback = generateReply(currentAgent, text);

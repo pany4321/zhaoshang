@@ -99,3 +99,6 @@ cf-named.log
 .git_msg_*.txt
 .tmp_*.py
 .tmp_*
+
+# 测试/导出产物（verify_ai_export.mts 运行时生成）
+tmp/

@@ -39,6 +39,7 @@ const SUITE = [
   ['verify_policy_jump.cjs', '画像→政策跳转链路', true],
   ['verify_ai_lead_admission.js', 'AI 推荐纳入字段真实性（区县/注册资本/产业）', true],
   ['verify_md_render.cjs', '大模型输出 Markdown 渲染（列表/表格/续行/未闭合/XSS）', true],
+  ['verify_ai_export.mts', 'AI 回答导出 PDF/DOCX（AST/字体子集/空内容/XSS）', true],
   ['verify_demo_data_source.mjs', 'demo 数据源（真实装载/确定性/兜底回落/9 页渲染）', true],
 ];
 
@@ -62,11 +63,12 @@ async function serverAlive() {
 
   for (const [file, desc, needsJsdom] of SUITE) {
     const full = path.join(__dirname, file);
-    const r = spawnSync(process.execPath, [full], {
-      encoding: 'utf8',
-      timeout: 120000,
-      env: process.env,
-    });
+    // .mts/.ts 脚本要经 tsx 跑（直接 import 了 server/src 的 TS 模块），cwd 落在 server/ 以便解析依赖
+    const isTs = /\.(mts|ts)$/.test(file);
+    const tsxBin = path.join(__dirname, '..', 'server', 'node_modules', '.bin', 'tsx');
+    const r = isTs
+      ? spawnSync(tsxBin, [full], { encoding: 'utf8', timeout: 180000, env: process.env, cwd: path.join(__dirname, '..', 'server') })
+      : spawnSync(process.execPath, [full], { encoding: 'utf8', timeout: 120000, env: process.env });
     const out = (r.stdout || '') + (r.stderr || '');
     const code = r.status;
     const tag = code === 0 ? 'PASS' : 'FAIL';

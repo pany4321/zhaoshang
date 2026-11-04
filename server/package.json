@@ -20,7 +20,9 @@
     "@fastify/static": "^7.0.4",
     "@prisma/client": "^5.20.0",
     "bcryptjs": "^2.4.3",
-    "fastify": "^4.28.1"
+    "docx": "^9.15.2",
+    "fastify": "^4.28.1",
+    "pdfmake": "^0.2.10"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

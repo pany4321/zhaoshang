@@ -1404,7 +1404,8 @@
       );
       resultsHtml +=
         '<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:14px;margin-bottom:8px;">' +
-        '<div style="font-weight:600;color:#15803D;margin-bottom:6px;">📊 推荐概览</div>' +
+        '<div style="font-weight:600;color:#15803D;margin-bottom:6px;">📊 推荐概览' +
+        '<button class="ai-exp" id="expRecPdf" style="float:right;margin-top:-1px;">导出 PDF</button></div>' +
         '<div style="font-size:12px;color:#475569;line-height:2;">' +
         (aiSummary ? U.md(aiSummary) : "") +
         "本次推荐 <b>" +
@@ -1423,6 +1424,46 @@
         "</div>";
 
       resultsEl.innerHTML = resultsHtml;
+
+      // AI 推荐结果 → PDF（服务端渲染，中文子集化）
+      var expRecBtn = resultsEl.querySelector('#expRecPdf');
+      if (expRecBtn) {
+        expRecBtn.addEventListener('click', function () {
+          var lines = [
+            '## 一、推荐研判摘要', '',
+            aiSummary || '（本次未返回模型摘要，以下为推荐清单结构化结果）', '',
+            '## 二、推荐企业清单', '',
+            '| 企业名称 | 所在地区 | 所属行业 | 契合度 |',
+            '| --- | --- | --- | --- |',
+          ];
+          recommendations.forEach(function (r) {
+            var p = r.prospect || {};
+            lines.push('| ' + [p.name || '—', p.districtName || '—', p.industryName || '—', r.score].join(' | ') + ' |');
+          });
+          lines.push('', '## 三、接洽建议', '');
+          recommendations.forEach(function (r, i) {
+            var p = r.prospect || {};
+            lines.push((i + 1) + '. ' + (p.name || '目标企业') + '：' + (p.approach || '建议由招商专员电话初访核实'));
+          });
+          lines.push('', '候选池共 ' + (apiRes.poolSize || 0) + ' 家真实企业（数据源：工商公示 + 国标行业分类），平均契合度 ' + avgScore + ' 分。');
+
+          expRecBtn.disabled = true;
+          C.toast('正在生成 PDF…', 'info');
+          U.exportAnswer({
+            format: 'pdf',
+            title: '招商目标企业智能推荐报告',
+            subtitle: '庆阳市产业招商 · AI 智能推荐',
+            meta: ['生成时间：' + U.fmtDateTime(new Date()), '推荐企业：' + recommendations.length + ' 家', '平均契合度：' + avgScore + ' 分'],
+            markdown: lines.join('\n')
+          }).then(function (n) {
+            C.toast('已生成 PDF：' + n, 'success');
+          }).catch(function (err) {
+            C.toast((err && err.message) || 'PDF 导出失败', 'warning');
+          }).then(function () {
+            expRecBtn.disabled = false;
+          });
+        });
+      }
       resultsEl.style.display = "";
 
       // 滚动到底部

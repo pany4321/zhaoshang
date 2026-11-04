@@ -42,7 +42,44 @@
   var aiAssess = {};      // AI 风险评估结果（entId → 结果，会话内有效，刷新还原）
   var assessTimers = [];  // 研判过程定时器
 
+  /* ------------------------------------------------------------
+   * AI 面板「导出 PDF」：交服务端渲染（中文字体子集化，50–200KB/份）
+   * 面板内容随企业切换而变，所以渲染时把组装好的 Markdown 存进 AI_EXPORT，
+   * 按钮只带 key —— 避免把整篇正文塞进 DOM 属性。
+   * ---------------------------------------------------------- */
+  var AI_EXPORT = {};
+  var aiExportBound = false;
+
+  function aiExportBtn(key) {
+    return '<button class="ai-exp" data-ai-exp="' + key + '" title="把本报告排版成 A4 PDF 下载">导出 PDF</button>';
+  }
+  function regAiExport(key, payload) { AI_EXPORT[key] = payload; }
+  function mdOl(arr) {
+    return (arr || []).map(function (s, i) { return (i + 1) + '. ' + String(s); }).join('\n');
+  }
+  function mdTbl(head, rows) {
+    return '| ' + head.join(' | ') + ' |\n| ' + head.map(function () { return '---'; }).join(' | ') + ' |\n' +
+      rows.map(function (r) { return '| ' + r.join(' | ') + ' |'; }).join('\n');
+  }
+  function bindAiExportOnce() {
+    if (aiExportBound) return;
+    aiExportBound = true;
+    document.addEventListener('click', function (ev) {
+      var b = ev.target && ev.target.closest ? ev.target.closest('[data-ai-exp]') : null;
+      if (!b || b.disabled) return;
+      var p = AI_EXPORT[b.getAttribute('data-ai-exp')];
+      if (!p) { C.toast('报告内容未就绪，请稍候重试', 'warning'); return; }
+      b.disabled = true;
+      C.toast('正在生成 PDF…', 'info');
+      U.exportAnswer({ format: 'pdf', title: p.title, subtitle: p.subtitle, meta: p.meta, markdown: p.markdown })
+        .then(function (n) { C.toast('已生成 PDF：' + n, 'success'); })
+        .catch(function (err) { C.toast((err && err.message) || 'PDF 导出失败', 'warning'); })
+        .then(function () { b.disabled = false; });
+    });
+  }
+
   function renderProfile() {
+    bindAiExportOnce();
     // 一键演示：允许指定初始页签（如 AI 综合研判，index 5）；只应用一次，避免影响后续手动交互
     if (typeof state.demoTab === 'number' && state.demoTab > 0) {
       currentTab = state.demoTab;
@@ -916,10 +953,19 @@
       : '<tr><th>风险维度</th><th class="num">档案值</th><th class="num">本次评估</th><th class="num">变化</th></tr>';
     var dimTitle = hasAI ? '各维度 AI 判断（分数不参与模型推理，保证可复现）' : '维度评分更新';
 
+    regAiExport('risk', {
+      title: 'AI 风险评估报告',
+      subtitle: e.name,
+      meta: ['企业：' + e.name, '置信度：' + as.confidence + '%', '评估时间：' + (as.time || ''), '综合指数：' + as.score + '（' + M.LEVELS[as.level].name + '）'],
+      markdown: '## 一、评估摘要\n\n' + (as.summary || '') +
+        '\n\n## 二、主要风险点\n\n' + mdOl(as.topRisks) +
+        '\n\n## 三、处置建议\n\n' + mdOl(as.advice)
+    });
+
     return '<div class="ai-panel">' +
         '<div class="ai-title">' +
           '<span>✦ AI 风险评估报告</span>' +
-          '<span class="ai-conf">置信度 ' + as.confidence + '% · ' + U.esc(as.time) + '</span>' +
+          '<span class="ai-conf">置信度 ' + as.confidence + '% · ' + U.esc(as.time) + aiExportBtn('risk') + '</span>' +
         '</div>' +
         '<div class="ai-body">' +
           '<div class="ai-sec">' + U.md(as.summary) + '</div>' +
@@ -957,8 +1003,20 @@
     var deltaTxt = sd === 0 ? '<span style="color:#94A3B8">持平</span>'
       : (sd > 0 ? '<span style="color:#e03131">↑' + sd + '</span>' : '<span style="color:#22C55E">↓' + (-sd) + '</span>');
     var confTxt = '置信度 ' + (j.confidence || 85) + '%' + (j.time ? ' · ' + U.esc(j.time) + ' 更新' : '');
+
+    regAiExport('judge', {
+      title: 'AI 综合研判报告',
+      subtitle: e.name,
+      meta: ['企业：' + e.name, '统一社会信用代码：' + (e.creditCode || '—'), '置信度：' + (j.confidence || 85) + '%',
+        '综合风险指数：' + score + '（' + M.LEVELS[e.riskLevel].name + '）', '研判时间：' + (j.lastJudge || j.time || '')],
+      markdown: '## 一、研判摘要\n\n' + (j.summary || '') +
+        '\n\n## 二、核心优势\n\n' + mdOl(j.strengths) +
+        '\n\n## 三、关注风险\n\n' + mdOl(j.risks) +
+        ((j.sources && j.sources.length) ? '\n\n## 四、数据来源\n\n' + mdOl(j.sources) : '')
+    });
+
     return '<div class="ai-panel">' +
-        '<div class="ai-title"><span>✦ AI 综合研判报告</span><span class="ai-conf">' + confTxt + '</span></div>' +
+        '<div class="ai-title"><span>✦ AI 综合研判报告</span><span class="ai-conf">' + confTxt + aiExportBtn('judge') + '</span></div>' +
         '<div class="ai-body">' +
           '<div class="ai-sec">' + U.md(j.summary) + '</div>' +
           '<div class="ai-sec"><h4>核心优势</h4><ul>' + (j.strengths || []).map(li).join('') + '</ul></div>' +
@@ -1410,8 +1468,33 @@
     var sd = score - prevScore;
     var deltaTxt = sd === 0 ? '<span style="color:#94A3B8;">持平</span>'
       : (sd > 0 ? '<span style="color:#e03131;">↑' + sd + '</span>' : '<span style="color:#22C55E;">↓' + (-sd) + '</span>');
+    regAiExport('judge', {
+      title: 'AI 综合研判报告（完整版）',
+      subtitle: e.name,
+      meta: ['企业：' + e.name, '所属行业：' + (e.industryName || '—'), '所在区县：' + (e.districtName || '—'),
+        '置信度：' + (j.confidence || 85) + '%', '综合风险指数：' + score + '（' + M.LEVELS[e.riskLevel].name + '）', '研判时间：' + (j.lastJudge || j.time || '')],
+      markdown: '## 一、研判摘要\n\n' + (j.summary || '') +
+        '\n\n## 二、关键指标快照\n\n' + mdTbl(
+          ['总营收', '纳税', '员工数', '履约率', '承诺完成率', '综合指数'],
+          [[e.overview.revenue, e.overview.tax,
+            e.overview.employees == null ? '未公示' : Number(e.overview.employees).toLocaleString(),
+            e.status.performRate + '%', cr != null ? cr + '%' : '—', String(e.riskScore)]]) +
+        '\n\n## 三、核心优势\n\n' + mdOl(j.strengths) +
+        '\n\n## 四、关注风险与建议\n\n' + mdOl(j.risks) +
+        '\n\n## 五、招投标情况（近三年）\n\n' + mdTbl(
+          ['参与(次)', '中标(次)', '中标率', '中标金额', '最近中标'],
+          [[String(X.tender.total), String(X.tender.win), X.tender.rate + '%', X.tender.amount, X.tender.lastDate]]) +
+        '\n\n## 六、知识产权情况\n\n' + mdTbl(
+          ['专利(项)', '其中发明', '软著(项)', '商标(件)', '纠纷'],
+          [[String(X.ip.patent), String(X.ip.invention), String(X.ip.soft), String(X.ip.brand), X.ip.dispute ? '1 起' : '无']]) +
+        '\n\n## 七、客户与供应商结构\n\n' + mdTbl(
+          ['主要客户', '销售占比'],
+          X.cust.list.map(function (c) { return [c.name, c.share + '%']; })) +
+        '\n\n第一大客户占比 ' + X.cust.conc + '%。主要供应商：' + X.supp.list.join('、') + '。'
+    });
+
     return '<div class="ai-panel">' +
-        '<div class="ai-title"><span>✦ AI 综合研判报告</span><span class="ai-conf">置信度 ' + (j.confidence || 85) + '%' + (j.time ? ' · ' + U.esc(j.time) : '') + '</span></div>' +
+        '<div class="ai-title"><span>✦ AI 综合研判报告</span><span class="ai-conf">置信度 ' + (j.confidence || 85) + '%' + (j.time ? ' · ' + U.esc(j.time) : '') + aiExportBtn('judge') + '</span></div>' +
         '<div class="ai-body">' +
           '<div class="ai-sec">' + U.md(j.summary) + '</div>' +
           '<div class="ai-sec"><h4>关键指标快照</h4>' +

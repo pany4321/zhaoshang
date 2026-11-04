@@ -233,6 +233,90 @@
       .trim();
   }
 
+  // ---------- AI 回答导出（PDF / Word）----------
+  // 走服务端渲染：字体子集化后一份中文报告只有 50–200KB。
+  // 纯前端 jsPDF 方案要把整个中文字体嵌进 PDF（3MB+/份），自由文本场景不划算，
+  // 因此只有离线 file:// 直开时才不可用（调用方需自行兜底提示）。
+  function saveBlob(name, blob) {
+    var url = URL.createObjectURL(blob);
+    var a = el('a', { href: url, download: name, style: 'display:none;' });
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      if (a.parentNode) a.parentNode.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 600);
+  }
+
+  function authToken() {
+    try { return localStorage.getItem('zs_token') || ''; } catch (e) { return ''; }
+  }
+
+  function filenameFromResponse(r, fallback) {
+    var cd = '';
+    try { cd = r.headers.get('Content-Disposition') || ''; } catch (e) {}
+    var m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+    if (m) { try { return decodeURIComponent(m[1]); } catch (e) {} }
+    return fallback;
+  }
+
+  /** 把一段 Markdown 文本导出成 PDF / Word 并触发下载 */
+  function exportAnswer(o) {
+    o = o || {};
+    var token = authToken();
+    var fmt = o.format === 'docx' ? 'docx' : 'pdf';
+    if (!token || typeof fetch !== 'function') {
+      return Promise.reject(new Error('离线演示环境不支持文件导出，请登录后使用'));
+    }
+    return fetch('/api/ai/export/' + fmt, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({
+        title: o.title || 'AI 分析报告',
+        subtitle: o.subtitle || '',
+        meta: o.meta || [],
+        markdown: o.markdown || ''
+      })
+    }).then(function (r) {
+      var ct = '';
+      try { ct = r.headers.get('Content-Type') || ''; } catch (e) {}
+      if (ct.indexOf('application/json') >= 0) {
+        return r.json().then(function (j) { throw new Error((j && j.msg) || '导出失败'); });
+      }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      var name = filenameFromResponse(r, (o.title || 'AI分析报告') + '.' + fmt);
+      return r.blob().then(function (b) { saveBlob(name, b); return name; });
+    });
+  }
+
+  /** 下载服务端登记过的附件（对话接口返回的 files[].url） */
+  function downloadAttachment(url, name) {
+    var token = authToken();
+    if (!token || typeof fetch !== 'function') return Promise.reject(new Error('离线演示环境不支持下载'));
+    return fetch(url, { headers: { 'Authorization': 'Bearer ' + token } }).then(function (r) {
+      var ct = '';
+      try { ct = r.headers.get('Content-Type') || ''; } catch (e) {}
+      if (ct.indexOf('application/json') >= 0) {
+        return r.json().then(function (j) { throw new Error((j && j.msg) || '下载失败'); });
+      }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      var fn = filenameFromResponse(r, name || 'attachment');
+      return r.blob().then(function (b) { saveBlob(fn, b); return fn; });
+    });
+  }
+
+  /** 从回答里挑出模型自己给出的文件链接（.pdf/.docx/.xlsx/.csv），供渲染成下载卡片 */
+  function mdFileLinks(raw) {
+    var out = [];
+    var re = /\[([^\]\n]{1,80})\]\(([^)\s]+\.(?:pdf|docx|xlsx|doc|csv))\)/gi;
+    var s = String(raw == null ? '' : raw);
+    var m;
+    while ((m = re.exec(s)) !== null) {
+      out.push({ name: m[1], url: m[2], ext: String(m[2].split('.').pop() || '').toLowerCase() });
+    }
+    return out;
+  }
+
   // ---------- 数字格式化 ----------
   function fmtNum(n, digits) {
     if (n == null || isNaN(n)) return '-';
@@ -301,6 +385,7 @@
     $: $, $$: $$, el: el,
     esc: esc,
     md: md, mdPlain: mdPlain,
+    saveBlob: saveBlob, exportAnswer: exportAnswer, downloadAttachment: downloadAttachment, mdFileLinks: mdFileLinks,
     fmtNum: fmtNum, fmtWan: fmtWan,
     fmtDate: fmtDate, fmtDateTime: fmtDateTime,
     daysAgo: daysAgo, daysFromNow: daysFromNow, inLastNDays: inLastNDays,

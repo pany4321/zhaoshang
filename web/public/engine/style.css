@@ -4374,4 +4374,58 @@ input[type="range"].rw-slider::-moz-range-thumb {
 }
 .msg-tool:hover { color: #2563EB; border-color: #BFDBFE; background: #EFF6FF; }
 .msg-tool:active { transform: translateY(0.5px); }
+
+/* 附件卡片：服务端随回答返回的 PDF / Word、或模型给出的文件链接 */
+.msg-files { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.msg-file {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; max-width: 420px;
+  padding: 8px 10px;
+  text-align: left;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.msg-file:hover { border-color: #BFDBFE; background: #EFF6FF; box-shadow: 0 1px 4px rgba(37,99,235,.10); }
+.mf-ico {
+  flex: 0 0 auto;
+  width: 34px; height: 34px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .3px;
+  color: #fff; border-radius: 7px;
+  background: linear-gradient(135deg, #94A3B8, #64748B);
+}
+.mf-ico.pdf { background: linear-gradient(135deg, #F87171, #DC2626); }
+.mf-ico.docx, .mf-ico.doc { background: linear-gradient(135deg, #60A5FA, #2563EB); }
+.mf-ico.xlsx, .mf-ico.csv { background: linear-gradient(135deg, #34D399, #059669); }
+.mf-meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mf-name {
+  font-size: 12px; color: #0F172A; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mf-sub { font-size: 10.5px; color: #94A3B8; font-variant-numeric: tabular-nums; }
+.mf-dl { flex: 0 0 auto; font-size: 14px; color: #93C5FD; line-height: 1; }
+.msg-file:hover .mf-dl { color: #2563EB; }
+
+/* AI 报告面板标题右侧的「导出 PDF」按钮（画像页风险评估 / 综合研判） */
+.ai-exp {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 10.5px;
+  line-height: 1.7;
+  color: #2563EB;
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  vertical-align: 1px;
+  transition: background .15s, color .15s;
+}
+.ai-exp:hover { background: #DBEAFE; }
+.ai-exp:disabled { opacity: .55; cursor: default; }
 .msg-text strong { color: #0F172A; font-weight: 650; }

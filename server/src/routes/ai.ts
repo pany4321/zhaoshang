@@ -5,6 +5,15 @@ import { llmChat, llmConfigured, llmChatWithTools, AGENT_SYSTEM } from '../servi
 import { DORIS_TOOLS, runDorisTool, toolsAvailable } from '../services/dorisTools.js'
 import { DORIS_SCHEMA_HINT } from '../services/dorisSchemaHint.js'
 import { AI_TOOLS, executeTool } from '../services/aiTools.js'
+import { buildAnswerFile, detectExportIntent, getExport, stamp } from '../services/aiExport.js'
+
+/** 智能体中文名：用于导出文件的标题与文件名 */
+const AGENT_LABEL: Record<string, string> = {
+  insight: '企业洞察',
+  risk: '风险研判',
+  plan: '招商谋划',
+  service: '企业服务',
+}
 
 /** 未公示字段（null）在提示词里显式标注，避免拼成 "纳税：null 万元" 被模型当成数值误读。
  *  2026-10-26 起 tax / employees / assetTotal / netProfit 允许 null，语义为"年报未公示"。 */
@@ -233,6 +242,8 @@ export default async function (fastify: FastifyInstance) {
               '6. 数据仓库的表名与关键字段已在下方向你提供，直接据此写 SQL；只有速查表里没有的表才调用 doris_list_tables，严禁猜测表名；',
               '7. doris_query 只能执行单条 SELECT，必须填写 purpose 说明查询目的；查询结果同样视为权威数据，不得改写数字；',
               '8. 严禁向用户请示"是否继续取数/请确认口径"——你应当自主完成全部查询步骤后直接给出结论；只有确实查不到数据时才说明缺口。',
+              // 平台已内生导出能力：模型若声称"无法生成文件"会和页面上的下载卡片直接矛盾
+              '9. 平台已支持把回答一键导出为 PDF / Word：用户要求"导出/下载/生成文件"时，正常给出完整分析内容即可，不要声明"无法生成或导出文件"，也不要建议用户自行复制到 Word 另存。',
             ].join('\n'),
           },
           ...history,
@@ -365,7 +376,41 @@ export default async function (fastify: FastifyInstance) {
       })
     }
 
-    return ok({ reply: aiReply, messages: JSON.parse(conv.messages), llm: llmUsed })
+    // 用户明确要文件（"导出/下载 word/pdf"）时，把这条回答同时落成附件返回，
+    // 前端渲染成下载卡片；对话文本本身不变，避免"文件+正文"两份内容不一致。
+    const files: any[] = []
+    const exportFmt = detectExportIntent(message)
+    if (exportFmt) {
+      try {
+        const label = AGENT_LABEL[agentType] || 'AI'
+        // 副标题取用户问题的「有效部分」：把"导出成 PDF 给我"这类指令从句子里剔掉，
+        // 否则 PDF 抬头会印成「请分析…并导出成 PDF 文件给我」，读起来像工单而不是报告
+        const subTitle = String(message)
+          .split(/[，,。；;]/)
+          .filter((s) => !/(导出|下载|生成|保存|另存|pdf|word|docx|文件|文档)/i.test(s))
+          .join('，')
+          .trim()
+          .slice(0, 60)
+        const f = await buildAnswerFile({
+          format: exportFmt,
+          title: `${label}分析报告`,
+          subtitle: subTitle,
+          meta: [`智能体：${label}`, `生成时间：${stamp()}`, '数据来源：平台实时数据'],
+          markdown: aiReply,
+        })
+        files.push({
+          name: f.name,
+          mime: f.mime,
+          size: f.size,
+          kind: exportFmt,
+          url: `/api/ai/export/dl/${f.token}`,
+        })
+      } catch (e: any) {
+        console.warn('[ai] 附件生成失败：', e?.message)
+      }
+    }
+
+    return ok({ reply: aiReply, messages: JSON.parse(conv.messages), llm: llmUsed, files })
   })
 
   // 清空对话
@@ -1004,5 +1049,47 @@ export default async function (fastify: FastifyInstance) {
       .catch((err: any) => console.warn('[ai] 招商推荐落库失败：', err?.message))
 
     return ok({ ...result, degraded, latencyMs })
+  })
+
+  /* ---------------- AI 回答导出（PDF / Word） ----------------
+   * 前端「下载 PDF」「下载 Word」按钮打这里；对话接口生成的附件也复用同一份 buf。
+   * 走 POST 而不是 GET：正文可能有几千字，塞 query 会撞 URL 长度限制。
+   */
+
+  function sendFile(reply: any, f: { name: string; mime: string; buf: Buffer }) {
+    const ascii = f.name.replace(/[^\x20-\x7E]/g, '_')
+    return reply
+      .header('Content-Type', f.mime)
+      .header('Content-Length', String(f.buf.length))
+      .header('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(f.name)}`)
+      .header('Cache-Control', 'no-store')
+      .send(f.buf)
+  }
+
+  fastify.post('/export/:format', { preHandler: [fastify.authenticate] }, async (request: any, reply: any) => {
+    const format = String(request.params?.format || '').toLowerCase()
+    if (format !== 'pdf' && format !== 'docx') return fail('仅支持 pdf / docx')
+    const body = request.body || {}
+    const markdown = typeof body.markdown === 'string' ? body.markdown : ''
+    if (!markdown.trim()) return fail('导出内容为空')
+    try {
+      const f = await buildAnswerFile({
+        format,
+        title: body.title || 'AI 分析报告',
+        subtitle: body.subtitle || '',
+        meta: Array.isArray(body.meta) ? body.meta.map(String) : [],
+        markdown,
+      })
+      return sendFile(reply, f)
+    } catch (e: any) {
+      console.warn('[ai] 导出失败：', e?.message)
+      return fail(`导出失败：${e?.message || '未知错误'}`)
+    }
+  })
+
+  fastify.get('/export/dl/:token', { preHandler: [fastify.authenticate] }, async (request: any, reply: any) => {
+    const f = getExport(String(request.params?.token || ''))
+    if (!f) return fail('文件已过期，请重新导出')
+    return sendFile(reply, f)
   })
 }
