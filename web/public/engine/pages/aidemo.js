@@ -11,51 +11,27 @@
   var M = window.MOCK;
 
   /* ------------------------------------------------------------
-   * 轻量 Markdown 渲染：支持表格、粗体、分段
-   * 大模型（尤其走 MCP 查数）返回的内容天然带 Markdown 表格，
-   * 直接按纯文本渲染会显示成一堆竖线，这里最小化支持即可。
+   * 大模型输出渲染：统一走 APP.U.md()（Markdown 子集解析器）
+   * 流式与完成态共用同一函数——否则打字时满屏 ** ## |，打完才突变。
+   * 流式用「最后一个空行之前」的前缀缓存：已完成块只解析一次，
+   * 每帧只重算尾部一个未闭合块，800 字量级无可感延迟。
    * ------------------------------------------------------------ */
-  function splitRow(line) {
-    return line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); });
+  function renderAIText(raw) {
+    return U.md(raw);
   }
 
-  function renderAIText(raw) {
-    var text = U.esc(String(raw == null ? '' : raw));
-    var lines = text.split('\n');
-    var out = [];
-    var i = 0;
-    while (i < lines.length) {
-      var line = lines[i].trim();
-      var next = (lines[i + 1] || '').trim();
-      // 表格块：当前行是 |...|，且下一行是 |---|---| 分隔行
-      if (/^\|.*\|$/.test(line) && /^\|[\s:|-]+\|$/.test(next) && next.indexOf('-') > -1) {
-        var header = splitRow(line);
-        i += 2;
-        var rows = [];
-        while (i < lines.length && /^\|.*\|$/.test(lines[i].trim())) {
-          rows.push(splitRow(lines[i].trim()));
-          i++;
-        }
-        var tbl = '<div class="msg-table-wrap"><table class="msg-table"><thead><tr>';
-        for (var h = 0; h < header.length; h++) tbl += '<th>' + header[h] + '</th>';
-        tbl += '</tr></thead><tbody>';
-        for (var r = 0; r < rows.length; r++) {
-          tbl += '<tr>';
-          for (var c = 0; c < header.length; c++) tbl += '<td>' + (rows[r][c] || '') + '</td>';
-          tbl += '</tr>';
-        }
-        tbl += '</tbody></table></div>';
-        out.push(tbl);
-        continue;
-      }
-      if (!line) {
-        out.push('<div class="msg-gap"></div>');
-      } else {
-        out.push('<div class="msg-line">' + line.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>') + '</div>');
-      }
-      i++;
+  function renderAITextStream(holder, raw) {
+    if (!holder) return;
+    var s = String(raw == null ? '' : raw);
+    var cut = s.lastIndexOf('\n\n');
+    if (cut < 0) { holder.innerHTML = U.md(s); return; }
+    var head = s.slice(0, cut);
+    var tail = s.slice(cut);
+    if (holder.__mdHead !== head) {
+      holder.__mdHead = head;
+      holder.__mdHtml = U.md(head);
     }
-    return out.join('');
+    holder.innerHTML = holder.__mdHtml + U.md(tail);
   }
 
   /* ------------------------------------------------------------
@@ -334,7 +310,8 @@
     var node = idx >= 0 ? nodes[idx] : null;
     var txt = node ? node.querySelector('.msg-text') : null;
     if (!txt) { refreshMessages(); return; }
-    txt.innerHTML = U.esc(msg.content).replace(/\n/g, '<br/>');
+    // 流式与完成态共用同一渲染函数（U.md），避免打字时露出 ** ## |
+    renderAITextStream(txt, msg.content);
     // 仅当用户本来就在底部附近时才跟随滚动，避免打断回看
     var nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 90;
     if (nearBottom) box.scrollTop = box.scrollHeight;

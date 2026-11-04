@@ -1406,7 +1406,7 @@
         '<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:14px;margin-bottom:8px;">' +
         '<div style="font-weight:600;color:#15803D;margin-bottom:6px;">📊 推荐概览</div>' +
         '<div style="font-size:12px;color:#475569;line-height:2;">' +
-        (aiSummary ? U.esc(aiSummary) + "<br/><br/>" : "") +
+        (aiSummary ? U.md(aiSummary) : "") +
         "本次推荐 <b>" +
         recommendations.length +
         "</b> 家目标企业<br/>" +

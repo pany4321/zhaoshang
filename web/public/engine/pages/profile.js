@@ -922,7 +922,7 @@
           '<span class="ai-conf">置信度 ' + as.confidence + '% · ' + U.esc(as.time) + '</span>' +
         '</div>' +
         '<div class="ai-body">' +
-          '<div class="ai-sec"><p>' + U.esc(as.summary) + '</p></div>' +
+          '<div class="ai-sec">' + U.md(as.summary) + '</div>' +
           '<div class="ai-sec"><h4>' + dimTitle + '</h4>' +
             '<table class="tbl" style="margin-top:4px;"><thead>' + dimHead + '</thead><tbody>' + dimRows + '</tbody></table>' +
           '</div>' +
@@ -960,7 +960,7 @@
     return '<div class="ai-panel">' +
         '<div class="ai-title"><span>✦ AI 综合研判报告</span><span class="ai-conf">' + confTxt + '</span></div>' +
         '<div class="ai-body">' +
-          '<div class="ai-sec"><p>' + U.esc(j.summary || '') + '</p></div>' +
+          '<div class="ai-sec">' + U.md(j.summary) + '</div>' +
           '<div class="ai-sec"><h4>核心优势</h4><ul>' + (j.strengths || []).map(li).join('') + '</ul></div>' +
           '<div class="ai-sec"><h4>关注风险</h4><ul>' + (j.risks || []).map(li).join('') + '</ul></div>' +
           '<div class="ai-sec"><h4>数据来源 <span style="font-weight:400;font-size:11px;color:#94A3B8;">（结论可追溯、可审计）</span></h4>' +
@@ -1413,7 +1413,7 @@
     return '<div class="ai-panel">' +
         '<div class="ai-title"><span>✦ AI 综合研判报告</span><span class="ai-conf">置信度 ' + (j.confidence || 85) + '%' + (j.time ? ' · ' + U.esc(j.time) : '') + '</span></div>' +
         '<div class="ai-body">' +
-          '<div class="ai-sec"><p>' + U.esc(j.summary) + '</p></div>' +
+          '<div class="ai-sec">' + U.md(j.summary) + '</div>' +
           '<div class="ai-sec"><h4>关键指标快照</h4>' +
             '<table class="tbl" style="margin-top:4px;"><thead><tr><th>总营收</th><th class="num">纳税</th><th class="num">员工数</th><th class="num">履约率</th><th class="num">承诺完成率</th><th class="num">综合指数</th></tr></thead><tbody>' +
               '<tr><td>' + U.esc(e.overview.revenue) + '</td><td class="num">' + U.esc(e.overview.tax) + '</td><td class="num">' + (e.overview.employees == null ? '未公示' : Number(e.overview.employees).toLocaleString()) + '</td><td class="num">' + e.status.performRate + '%</td><td class="num">' + (cr != null ? cr + '%' : '—') + '</td><td class="num" style="color:' + M.LEVELS[e.riskLevel].color + ';font-weight:700;">' + e.riskScore + '</td></tr>' +
@@ -1530,7 +1530,7 @@
         '</table>' +
         // 一、研判摘要
         secTitle('一', '研判摘要') +
-        '<div style="text-indent:2em;text-align:justify;">' + U.esc(j.summary) + '</div>' +
+        '<div class="md-report">' + U.md(j.summary) + '</div>' +
         // 二、核心优势
         secTitle('二', '核心优势') +
         '<ol style="margin:0;padding-left:26px;">' + j.strengths.map(li).join('') + '</ol>' +
@@ -1815,7 +1815,7 @@
 
     // 一~三章
     secTitle('一', '研判摘要');
-    para(j.summary, 20);
+    para(U.mdPlain(j.summary), 20);
     secTitle('二', '核心优势');
     numList(j.strengths);
     secTitle('三', '关注风险与处置建议');
@@ -1983,6 +1983,17 @@
       'tr, li { page-break-inside: avoid; break-inside: avoid; }' +
       'div[style*="border-left:4px solid #2563EB"] { page-break-after: avoid; break-after: avoid; }' +
       '.rpt-bar { position: fixed; top: 12px; right: 16px; display: flex; gap: 8px; }' +
+      /* 大模型 Markdown 子集（打印视图内精简版） */
+      '.md-p { margin: 0 0 6px; text-align: justify; }' +
+      '.md-p:last-child { margin-bottom: 0; }' +
+      '.md-h { font-weight: 700; color: #0F172A; margin: 10px 0 4px; }' +
+      '.md-h4 { font-size: 12.5px; }' +
+      '.md-list { margin: 3px 0 6px; padding-left: 20px; }' +
+      '.md-list li { margin: 2px 0; }' +
+      '.md-table { font-size: 11px; }' +
+      '.md-table th, .md-table td { border: 1px solid #CBD5E1; padding: 5px 8px; text-align: left; vertical-align: top; }' +
+      '.md-table th { background: #F8FAFC; }' +
+      '.md-quote { border-left: 3px solid #CBD5E1; padding-left: 8px; color: #475569; }' +
       '.rpt-bar button { padding: 6px 16px; border: 1px solid #2563EB; background: #2563EB; color: #fff; border-radius: 6px; font-size: 13px; cursor: pointer; font-family: inherit; }' +
       '.rpt-bar button:hover { background: #1D4ED8; }' +
       '@media print { .rpt-bar { display: none !important; } }' +
