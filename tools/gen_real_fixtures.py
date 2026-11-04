@@ -187,6 +187,36 @@ def calibrate_target(rank_p: float) -> float:
     return 9 + (rank_p / 0.32) * 16                                    # 9~25   blue
 
 
+def _subset_sum(items, target=100, tol=0.5):
+    """回溯找出比例合计≈target 的最大子集（股东数最多）。
+    用于剔除「同一企业多批披露」混在一起导致的比例超 100%。
+    返回按原顺序的子集列表，无解返回 None。"""
+    ratios = [float(x['ratio']) for x in items]
+    order = sorted(range(len(items)), key=lambda i: -ratios[i])
+    best, cur = None, []
+
+    def dfs(pos, acc):
+        nonlocal best
+        if abs(acc - target) <= tol:
+            if best is None or len(cur) > len(best):
+                best = list(cur)
+            return
+        if pos >= len(items) or acc > target + tol:
+            return
+        if best is not None and len(cur) + (len(items) - pos) <= len(best):
+            return
+        for k in range(pos, len(items)):
+            i = order[k]
+            if acc + ratios[i] > target + tol:
+                continue
+            cur.append(i)
+            dfs(k + 1, acc + ratios[i])
+            cur.pop()
+
+    dfs(0, 0.0)
+    return None if best is None else [items[i] for i in sorted(best)]
+
+
 def load_partners():
     """读取真实股东数据（Doris opt_ent_partner_std 导出），按信用代码归集
     返回 {credit_no: [{name, ratio, sort}, ...]}，ratio 为百分比整数
@@ -222,6 +252,14 @@ def load_partners():
             valid = [s for s in lst if s['ratio'] > 0]
             if valid:
                 lst = valid
+        # 股权比例合计必须为 100%：Doris 源库同一企业存在多批披露（不同年份 /
+        # 不同层级：既有直接股东，也有上层投资主体），平铺后会出现 169%、200%
+        # 这类不可能值。此处回溯找合计恰好 100% 的最完整子集（股东数最多）；
+        # 找不到（如四舍五入误差 2%）就保留原样，不做等比缩放 —— 不造数。
+        if lst and abs(sum(s['ratio'] for s in lst) - 100) > 0.5:
+            sub = _subset_sum(lst, 100)
+            if sub:
+                lst = sub
         # 限制展示数量，避免极端分散的股权表撑爆页面
         lst = lst[:10]
         for i, s in enumerate(lst):
