@@ -96,5 +96,6 @@ cf-named.log
 
 # 临时文件（勿入库）
 .git_msg.txt
+.git_msg_*.txt
 .tmp_*.py
 .tmp_*

@@ -57,8 +57,9 @@
     var totalEnts = ents.length;
     var keyEnts = ents.filter(function(e){return e.tags && e.tags.indexOf('重点招商企业')>=0;}).length;
     var revWan = ents.reduce(function(s,e){return s + e.overview.revenueWan;},0);
-    // taxWan / employees 可能为 null（年报「未公示」）——求和按 0 计，
-    // 但卡片文案必须标注"不含 N 家未公示"，否则会被误读为全量口径
+    // revenueWan / taxWan / employees 中，后两者年报可能「未公示」——求和按 0 计。
+    // 卡片正文只保留纯数值（要求简洁）；「不含 N 家未公示」的口径说明改由 hover 提示承载，
+    // 既不占视觉，也不让口径失去可追溯性。
     var taxWan = ents.reduce(function(s,e){return s + (e.overview.taxWan || 0);},0);
     var invWan = ents.reduce(function(s,e){return s + e.overview.investWan;},0);
     var employ = ents.reduce(function(s,e){return s + (e.overview.employees || 0);},0);
@@ -67,9 +68,12 @@
     var riskEnts = ents.filter(function(e){return e.riskLevel==='red'||e.riskLevel==='orange';}).length;
 
     var revenueStr = (revWan/10000).toFixed(1) + '亿元';
-    var taxStr = (taxWan/10000).toFixed(2) + '亿元' + (taxUnpub ? '（不含' + taxUnpub + '家未公示）' : '');
-    var employStr = employ.toLocaleString() + '人' + (empUnpub ? '（不含' + empUnpub + '家未公示）' : '');
+    var taxStr = (taxWan/10000).toFixed(2) + '亿元';
+    var employStr = employ.toLocaleString() + '人';
     var investStr = (invWan/10000).toFixed(1) + '亿元';
+    // hover 提示：交代未公示口径（卡片正文不再出现括号）
+    var taxHint = taxUnpub ? '已公示企业之和，不含 ' + taxUnpub + ' 家年报未公示' : '';
+    var empHint = empUnpub ? '已公示企业之和，不含 ' + empUnpub + ' 家年报未公示' : '';
 
     // 环比（演示用：全市用 OVERVIEW，区县用略小的波动）
     var mom = O.mom;
@@ -88,10 +92,12 @@
       };
     }
 
-    function kpi(label, value, momKey, invert, riskClass, action) {
+    function kpi(label, value, momKey, invert, riskClass, action, hint) {
       var momVal = mom[momKey];
       // action 决定下钻时套用的筛选口径；无 action 的卡片（求和类）不提供下钻
-      var attrs = action ? ' data-action="' + action + '" style="cursor:pointer;" title="点击查看对应企业清单"' : '';
+      // hint 只在无 action 时作为 title（口径说明），保证卡片正文只有标签+数值
+      var titleAttr = action ? ' title="点击查看对应企业清单"' : (hint ? ' title="' + U.esc(hint) + '"' : '');
+      var attrs = (action ? ' data-action="' + action + '" style="cursor:pointer;"' : '') + titleAttr;
       // 环比只在有真实历史值时展示：签约类卡片没有历史签约基线，mom 里取不到值就不显示，
       // 避免用企业口径的环比数字冒充签约环比（数值必须可核验）
       var momBlock = typeof momVal === 'number' ? momHtml(momVal, invert) : '';
@@ -130,8 +136,8 @@
       // 第二行：经济贡献
       kpi('总营收', revenueStr, 'revenue') +
       kpi('固定资产投资', investStr, 'invest') +
-      kpi('带动就业', employStr, 'employment') +
-      kpi('纳税总额', taxStr, 'tax') +
+      kpi('带动就业', employStr, 'employment', false, '', '', empHint) +
+      kpi('纳税总额', taxStr, 'tax', false, '', '', taxHint) +
       kpi('亩均税收', muTax.toFixed(1) + '万元', 'tax');
 
     // 数据来源
