@@ -5,6 +5,82 @@
 
 ---
 
+## v5.1.20 — 2026-11-04 · 修复线上全站 404（静态目录随 rootDir 漂移）
+
+线上 `https://zs.diy.xiatang.com.cn/` 自 2026-11-03 起打不开。两个独立问题叠加。
+
+### 一、静态目录解析错位（本次代码修复）
+
+`5d8be12` 为把 `prisma/seed-data.ts` 编进产物，把 `server/tsconfig.json` 的
+`rootDir` 从 `src` 改成 `.`，编译入口随之由 `dist/index.js` 变为
+`dist/src/index.js`。但 `publicDir` 仍写死：
+
+```ts
+const publicDir = path.resolve(__dirname, '../public')   // __dirname = server/dist/src
+//                                        → server/dist/public（不存在）
+```
+
+`@fastify/static` 的 `root` 因此指向空目录。
+
+**危害形态值得记录**：`/api/*` 全部 200，`/api/health` 也 200，只有静态资源 404。
+健康探针绿的、服务"健康"、站点"打不开"——极易误判成网络或隧道问题（本次排查
+首轮正是因为 proxy 与公网都回 502 才转向端口，端口通了以后才发现是 404 而非 502）。
+
+修复：改为候选探测，以 `index.html` 存在为准，兼容三种形态：
+
+| 运行形态 | `__dirname` | 命中候选 |
+|---|---|---|
+| `tsx` 直跑 `src/index.ts` | `server/src` | `../public` |
+| `rootDir=src` → `dist/index.js` | `server/dist` | `../public` |
+| `rootDir=.` → `dist/src/index.js` | `server/dist/src` | `../../public` |
+
+### 二、保活任务被人为暂停，容器重建后无人拉活
+
+`ps -o lstart -p 1` = 2026-11-03 13:37（容器重建）。cron 任务 `fd913ae7c410`
+在 **2026-10-27 09:59 被「用户中心」手动暂停**（`paused_reason: paused from user center`），
+`keepalive_events.log` 最后一条停在 10-26 18:48。容器重建后 node 无人拉起，
+5443 一直无监听 → proxy 与公网 502。
+
+已 `cronjob resume` 恢复（`*/4 * * * *`）。
+
+### 三、watchdog 误判 runner 不存在
+
+`site-watchdog.sh` 用 `pgrep -f "$RUNNER_BIN run --sites-dir $SITES"` 判活，但
+`xiatang-site-runner` 的 `action` 是 argparse 位置参数（默认值 `run`），实际进程
+命令行是 `python3 /usr/local/bin/xiatang-site-runner --sites-dir ...`——**不含 `run`**。
+结果每轮都判「runner 进程不存在」，`--status` 也显示 `runner: 未运行`（而 PID 33 明明在跑）。
+改为 `basename + .*--sites-dir` 正则匹配，`pkill` 同步换成排除祖先链的 `kill_matching`。
+技能 `local-app-publish/scripts/site-watchdog.sh` 已同步。
+
+### 四、`/__health` 补静态资源探针
+
+原探针只探 db/llm/mcp，恰好对本次故障「全绿但页面 404」完全失明。新增
+`deps.static`：检查 `path.join(publicDir, 'index.html')` 是否存在（`probed: 'fs'`）。
+`publicDir` 一旦再次解析错位，探针立刻转红，watchdog 与 `verify-site.sh` 都能拦住。
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| 本地 `/` | 200（789B） |
+| 本地 `/api/health` | 200 |
+| 公网 `zs.diy.xiatang.com.cn/` | 200（789B，32ms） |
+| 公网 `zs.195656.xyz/` | 200 |
+| `verify-site.sh` | ⓿①②③⑤ 全绿 |
+| `watchdog --status` | `runner: 33`、`port=up tunnel=up public=up` |
+| `/__health` | `ok:true`、`db/llm/mcp/static` 全 true |
+| 浏览器实测 | 登录成功，驾驶舱 88 家 / 风险 21 / 营收 91.7 亿 / 纳税 6.80 亿 |
+| bootstrap | 88 企业 / 67 风险 / 78 任务 / 24 政策 / 19 项目 / 108 司法 |
+| 数据口径 | 营收 91.75 亿、纳税 6.80 亿（未受影响） |
+
+### 已知项
+
+- 容器生命周期仍是硬约束：容器被平台回收期间公网不可用。
+- 保活任务曾被手动暂停而无人察觉——本次靠人工发现。若再次暂停，站点会在下一次
+  容器重建后静默失效；如需长期暂停保活，应先明确接受「站点随容器回收而中断」。
+
+---
+
 ## v5.1.19 — 2026-10-26 · 审核修复（事件上限回归 / AI 提示词 null / 构建链失效）
 
 对 v5.1.18 做的批判性复审，修掉 6 处——其中 2 处是 v5.1.18 引入或暴露的真缺陷。

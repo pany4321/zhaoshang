@@ -217,7 +217,13 @@ app.get('/__health', async () => {
   deps.mcp = toolsAvailable()
   probed.mcp = 'config'
 
-  return { ok: deps.db && deps.llm && deps.mcp, deps, probed, ts: Date.now() }
+  // 静态资源：只查 index.html 在不在 publicDir 里。
+  // 2026-11-03 线上故障正是「publicDir 指错目录 + API 全 200」——不探这一项，
+  // 健康检查会全绿而站点实际 404，排查时极易误判成网络/隧道问题。
+  deps.static = fs.existsSync(path.join(publicDir, 'index.html'))
+  probed.static = 'fs'
+
+  return { ok: deps.db && deps.llm && deps.mcp && deps.static, deps, probed, ts: Date.now() }
 })
 
 // 当前公网访问地址（排查用；需登录）
