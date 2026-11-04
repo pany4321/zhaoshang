@@ -50,7 +50,13 @@ export default async function (fastify: FastifyInstance) {
     return ok({
       districts,
       industries,
-      enterprises,
+      // financials 在库内为 JSON 字符串（SQLite 无原生 JSON 列），此处解析为数组供 adapter 直接消费
+      enterprises: enterprises.map((e: any) => ({
+        ...e,
+        financials: (() => {
+          try { return e.financials ? JSON.parse(e.financials) : [] } catch { return [] }
+        })(),
+      })),
       riskEvents,
       projects,
       tasks,

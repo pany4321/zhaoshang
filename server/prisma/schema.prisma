@@ -145,6 +145,9 @@ model Enterprise {
   netProfit  Float?  // 净利润（万元，可为负）；NULL = 年报未公示。同 tax，不加默认值
   finYear    String? // 财务数据所属年份，null = 该企业未公示财务数据
   empYear    String? // 从业人数所属年报年份，null = 未公示或无记录（最老可能为 2015）
+  // 真实历年工商年报 JSON 数组：[{year,revenue,tax,asset,profit,employees}]
+  // 年份数量各家不等（1~4 年），缺失年份不插值 —— 由 tools/backfill_financials.py 回填
+  financials String? // JSON 字符串；null = 无任何年报记录
 
   // ===== 真实国标行业分类（来源 company_industry，2017 国民经济行业分类，官方公示）=====
   // 用途：与 industryId（招商视角的 12 个产业分类，属规则推导）并存。

@@ -181,36 +181,38 @@
     monthTax = monthTax.map(function(v){return +v.toFixed(2);});
     monthEmploy = monthEmploy.map(function(v){return Math.round(v);});
 
-    // 近五年（按年）聚合
-    var yearCount = 5;
-    var yearLabels = M.YEARS_5.slice();
-    var yearRevenue = new Array(yearCount).fill(0);
-    var yearTax = new Array(yearCount).fill(0);
-    var yearEmploy = new Array(yearCount).fill(0);
-    var yearInvest = new Array(yearCount).fill(0);
+    // 近五年（按年）聚合 —— 只聚合**真实工商年报**年份
+    // 2026-11 修正：原实现要求各企业恰好 5 个年度点，不足则用「当前值 × 逐年递减系数」编造；
+    // 真实年报年份各家 1~4 年不等，改为取全体年份并集，缺年不计入（不外推、不插值）。
+    var yearSet = {};
     ents.forEach(function (e) {
-      var y = e.overview.yearly;
-      if (y && y.revenueWan && y.revenueWan.length === 5) {
-        for (var yi = 0; yi < 5; yi++) {
-          yearRevenue[yi] += y.revenueWan[yi] / 10000;
-          yearTax[yi] += (y.taxWan ? y.taxWan[yi] : 0) / 10000;
-          yearEmploy[yi] += (y.employees ? y.employees[yi] : 0) / 100;
-          yearInvest[yi] += (y.investWan ? y.investWan[yi] : 0) / 10000;
-        }
-      } else {
-        // fallback：用当前值，逐年递减
-        for (var yj = 0; yj < 5; yj++) {
-          yearRevenue[yj] += (e.overview.revenueWan / 10000) * (0.7 + 0.3 * yj / 4);
-          yearTax[yj] += (e.overview.taxWan / 10000) * (0.7 + 0.3 * yj / 4);
-          yearEmploy[yj] += (e.overview.employees / 100) * (0.7 + 0.3 * yj / 4);
-          yearInvest[yj] += (e.overview.investWan / 10000) * (0.5 + 0.5 * yj / 4);
-        }
-      }
+      var y = e.overview && e.overview.yearly;
+      if (y && y.years) y.years.forEach(function (yy) { yearSet[yy] = 1; });
     });
-    yearRevenue = yearRevenue.map(function(v){return +v.toFixed(1);});
-    yearTax = yearTax.map(function(v){return +v.toFixed(2);});
-    yearEmploy = yearEmploy.map(function(v){return Math.round(v);});
-    yearInvest = yearInvest.map(function(v){return +v.toFixed(1);});
+    var realYears = Object.keys(yearSet).map(Number).sort(function (a, b) { return a - b; });
+    var yearLabels = realYears.map(function (yy) { return yy + '年'; });
+    var yearRevenue = [], yearTax = [], yearEmploy = [], yearInvest = [], yearCover = [];
+    realYears.forEach(function (yy) {
+      var rv = 0, tx = 0, em = 0, iv = 0, cover = 0;
+      ents.forEach(function (e) {
+        var y = e.overview && e.overview.yearly;
+        if (!y || !y.years) return;
+        var i = y.years.indexOf(yy);
+        if (i < 0) return;
+        var rev = y.revenueWan ? y.revenueWan[i] : null;
+        if (rev == null) return;              // 该企业该年未公示营收 → 不计入
+        cover++;
+        rv += rev / 10000;
+        tx += ((y.taxWan && y.taxWan[i]) || 0) / 10000;
+        em += ((y.employees && y.employees[i]) || 0) / 100;
+        iv += ((y.investWan && y.investWan[i]) || 0) / 10000;
+      });
+      yearRevenue.push(+rv.toFixed(1));
+      yearTax.push(+tx.toFixed(2));
+      yearEmploy.push(Math.round(em));
+      yearInvest.push(+iv.toFixed(1));
+      yearCover.push(cover);
+    });
 
     // 风险分布（实时）
     var riskCounts = { red: 0, orange: 0, yellow: 0, blue: 0 };

@@ -112,7 +112,7 @@ function nameAliases(name: string): string[] {
 const RISK_INTENT_RE =
   /风险|隐患|预警|异常|涉诉|诉讼|被执行|失信|限高|终本|欠税|处罚|违法|违约|纠纷|黑名单|尽调|尽职调查|能不能合作|可以合作|能否合作|是否稳定/
 const PROFILE_INTENT_RE =
-  /基本|概况|详情|详细|介绍|简介|档案|资料|是谁|做什么|干什么|主营|业务|规模|股东|股权|法人|法定代表人|注册资本|实缴|成立|地址|经营范围|财务|营收|营业收入|利润|纳税|缴税|从业|员工|人数|专利|商标|资质|多大|多少|实力|背景/
+  /基本|概况|详情|详细|介绍|简介|档案|资料|是谁|做什么|干什么|主营|业务|规模|股东|股权|法人|法定代表人|注册资本|实缴|成立|地址|经营范围|财务|营收|营业收入|利润|纳税|缴税|从业|员工|人数|专利|商标|资质|多大|多少|实力|背景|经营情况|经营状况|现状/
 
 export function detectEnterpriseIntent(text: string): 'risk' | 'profile' | 'none' {
   const t = String(text || '')
@@ -623,8 +623,9 @@ export default async function (fastify: FastifyInstance) {
       messages: JSON.parse(conv.messages),
       llm: llmUsed,
       files,
-      // 本轮实际启用的技能（null = 未触发）；前端可据此显示「企业风险溯源报告」标记
-      skill: skillEnt ? 'enterprise-risk-tracing-report' : null,
+      // 本轮实际启用的技能（null = 未触发）；前端可据此显示技能标记
+      skill: skillEnt ? (skillIntent === 'risk' ? 'enterprise-risk-tracing-report' : 'doris-daas-query') : null,
+      skillIntent: skillEnt ? skillIntent : null,
       skillSubject: skillEnt ? { id: skillEnt.id, name: skillEnt.name, creditCode: skillEnt.creditCode } : null,
     })
   })

@@ -136,10 +136,12 @@ export async function seedDemoData(prisma: PrismaClient) {
 
   // 3. 企业 + 股东
   for (const ent of fixtures.enterprises) {
-    const { shareholders, records, districtId, industryId, ...entData } = ent
+    const { shareholders, records, districtId, industryId, financials, ...entData } = ent
     await prisma.enterprise.create({
       data: {
         ...entData,
+        // 历年真实年报序列存 JSON 字符串（SQLite 无原生 JSON 列），API 层解析回数组
+        ...(financials && financials.length ? { financials: JSON.stringify(financials) } : {}),
         // ★ 外键必须走 relation connect：Prisma 的 EnterpriseCreateInput 不允许
         //   标量外键（districtId/industryId）与关系字段（shareholders.create）混用，
         //   混用会报 `Unknown argument districtId`（2026-10-26 修）

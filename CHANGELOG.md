@@ -5,6 +5,99 @@
 
 ---
 
+## v5.1.27 — 2026-11-05 · 历年财务去编造（真实工商年报入列）+ 四智能体技能全量落地
+
+两个动因：① 用户要求「宁可减少样本量，也不接受用零值/推导值/补造数据凑数」，而 `adapter.ts` 与 `dashboard.js` 仍在用「当前值 × 随机/递减系数」反推 5 年曲线、按营收比例造利润与固投；② 企业类提问要四个智能体口径统一，不能只有洞察/研判两条路有效。
+
+### 一、数据层：真实历年工商年报入列
+
+| 变更 | 内容 |
+|---|---|
+| `server/prisma/schema.prisma` | `Enterprise` 新增 `financials String?`（JSON 字符串；SQLite 无原生 JSON 列） |
+| `tools/backfill_financials.py`（新增，149 行） | 从 `data-import/annual_report.csv` + `employee.csv` + `id_map*.csv` 回填；`--check` 可仅校验 |
+| `server/prisma/real-fixtures.json` | 88 家全部回填，**共 163 条真实年度观测** |
+| `server/prisma/seed-data.ts` | 写入时 `JSON.stringify`，并加注释说明为何不用 JSON 列 |
+| `server/src/routes/bootstrap.ts` | 下发时 `JSON.parse` 回数组（try/catch 兜底空数组） |
+
+真实数据形态（这就是为什么不能画 5 年曲线）：
+
+| 年报年数 | 1 年 | 2 年 | 3 年 | 4 年 | 合计 |
+|---|---|---|---|---|---|
+| 企业数 | 44 | 16 | 25 | 3 | 88 |
+
+年度分布：2022 年 13 条、2023 年 45 条、2024 年 51 条、2025 年 54 条。**各家年数不等、年份不齐，缺失年份一律不外推、不插值。**
+
+### 二、适配层：删掉三处编造
+
+`web/src/engine/adapter.ts`
+
+| 原实现（编造） | 现实现（真实） |
+|---|---|
+| `yearGrowth = r.float(-0.03, 0.18, 3)` → `revenue × (1+growth)^(y-4)` 反推 5 年营收 | 直接取 `financials[]`，按 year 升序出点；`null` 保持 `null` |
+| `profit = Math.round(revenue × r.float(0.05, 0.2, 2))`（随机利润率） | 取年报 `netProfit`；缺失一律「未公示」 |
+| `investWan = investTotal × (0.4 + 0.6i/4)`（按营收比例造固投） | 工商年报不公示 → 一律 `null` |
+| 月度序列用 `yearlyRevenue[3]` 补齐 | 用最近一个**真实**年度营收作基准（月度形态仍属估算，已在注释标明） |
+
+同时新增 `overview.profitWan / assetWan / finYear`，`yearly` 增加 `profitWan / assetWan / real` 标记，供前端判断「本节数据是否全部来自真实年报」。
+
+### 三、驾驶舱：年度聚合改为真实年份并集
+
+`demo/assets/js/pages/dashboard.js`（并同步 `web/public/engine/`）
+
+- 删除：`if (y.revenueWan.length === 5) 聚合 else「当前值 × (0.7+0.3i/4)」` —— 这段 fallback 会给出看起来平滑、实际编造的五年曲线。
+- 改为：先取全体年份并集 → 逐年遍历企业，`revenue == null` 的年**不计入**（新增 `yearCover` 记录当年实际覆盖企业数）→ 折线只画真实存在的年份点。
+- `project.js`：招商候选企业（未落地庆阳、无工商年报）年度序列由 `zeros(5)` 改为空数组，不再以 0 参与聚合。
+
+### 四、AI 层：四智能体技能全量落地
+
+| 变更 | 内容 |
+|---|---|
+| `server/src/services/dorisPrefetch.ts`（新增，299 行） | 技能要求的事实预取：按信用码/企业名直查 Doris，与平台主档**并发**（`Promise.all`），避免模型自己写 SQL 反复试错 |
+| `server/src/routes/ai.ts` | `SKILL_AGENTS` 扩为四智能体（insight/risk/plan/service）；`PROFILE_INTENT_RE` 补「经营情况/经营状况/现状」；返回体 `skill` 区分 `enterprise-risk-tracing-report` / `doris-daas-query`，并新增 `skillIntent` |
+| `server/src/services/llm.ts` | 企业详情技能协议（doris-daas-query 口径） |
+| `demo/assets/js/pages/aidemo.js` | 纯静态入口同口径：新增 `buildProfileReport()` 六部分企业详情，四个 `answer*` 统一走 `isProfileQuestion()` 分流；溯源报告修正为「只取非空营收做对比」「跨年间隔标注」 |
+
+**为什么纯静态版也要做**：`demo/` 是无后端的交付基准（Pages 直接打开），若只有全栈版有六部分报告，演示两条路径会出现完全不同的输出质量。静态版明确写入「平台未收录的明细需连接数据仓库查询」，不编造、不用行业均值顶替。
+
+### 五、实测
+
+| 项 | 结果 |
+|---|---|
+| `GET /api/bootstrap` | 88 家企业 **88 家带 financials**（163 条年度记录） |
+| `npm test` | **15 个脚本全绿**，含接口回归 88/67/78/24/19 全对账、权重校验、脏任务自清理 |
+| `npm run build:web` | 9.49s 构建完成；publish 5 个顶层条目 + demo；precompress 48 文件 5658.1KB → 1621.8KB（省 71.3%） |
+| demo 数据源校验 | 真实装载 88 家 / 确定性（21KB 快照逐字节一致）/ 兜底回落 120 家 / 9 页全部渲染通过 |
+
+### 六、已知项（不装作用）
+
+1. **16 条 `revenue = 0` 按源数据原样保留**（涉及 11 家企业）。其中既有「年报填 0 但仍有纳税、资产、亏损」的真实情形（如甘肃红色南梁：营收 0、纳税 232.5 万、亏损 4 万、资产 1.54 亿），也有整行全 0 疑似未填（如甘肃京驰房地产 2025：营收/纳税/资产/利润全 0）。**未擅自改写为 null**，因为无原始填报凭证可判真伪；解读时需与纳税、资产交叉判断。口径已在 `docs/数据口径说明.md` 补注。
+2. 月度经营序列仍为形态估算（年报只有年度值），仅用于图表颗粒度，不构成对月度实际发生的宣称。
+3. 历年固定资产投资一律 `null`（工商年报不公示），前端需容忍空序列。
+4. `demo/` 与 `web/public/engine/` 的 `aidemo.js` 是两份实现（前者静态数据、后者回放服务器数据），当前逻辑一致但未抽公共函数；后续若要统一，需评估 esbuild 打包影响。
+
+---
+
+## v5.1.26 — 2026-11-04 · 企业洞察/风险研判：给定企业名强制走《企业风险溯源报告》
+
+背景：实测「甘肃圣越农牧发展有限公司有什么风险」时，模型给了几百字泛泛点评，而技能要求是六部分溯源报告。根因是不能指望模型自觉遵守方法论。
+
+### 实现
+
+| 变更 | 内容 |
+|---|---|
+| `server/src/services/llm.ts` | 新增 `RISK_TRACING_SKILL` 协议常量：取数纪律 / 判定理论「变化即风险」/ 必须六部分 / 格式与落款 |
+| `server/src/routes/ai.ts` | `detectEnterprise()` 识别平台企业（去区划前缀、剥组织形式后缀、逐层剥离通用词、4~6 字前缀兜底）；`detectEnterpriseIntent()` 正则分流风险/详情；命中即在代码层强制注入协议并锁定主体（全称 + 统一社会信用代码），省掉模型「先查是谁」的一轮 |
+| `demo/assets/js/pages/aidemo.js` | 静态入口对应的本地版六部分报告 `buildTracingReport()`（无数据仓库时只用 88 家真实年报，取不到的明确写「需连接数据仓库查询」） |
+| `tools/stamp_demo_assets.py`（新增） | 统一递增 `demo/index.html` 的 `?v=` 版本戳（Cloudflare immutable 缓存一年，改内容不改 URL 不生效） |
+
+### 实测
+
+「圣越农牧有什么风险，能不能合作」→ **68.4s / 6,021 字六部分报告**，主体自动锁定 `E049 / 91621027571648601F`，返回体带 `skill=enterprise-risk-tracing-report`。
+
+> 该版本先在两智能体生效；v5.1.27 起扩展为四智能体 + 企业详情技能。
+
+---
+
 ## v5.1.25 — 2026-11-04 · AI 回答导出 PDF / Word，附件可直接下载
 
 两个需求：① AI 回答若返回 docx/pdf 文件，要能下载；② 回答是 Markdown 时要能一键转成排版好的 PDF。

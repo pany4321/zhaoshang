@@ -889,11 +889,12 @@
         investWan: amt,
         profit: "—",
         yearly: {
-          years: [curYear - 4, curYear - 3, curYear - 2, curYear - 1, curYear],
-          revenueWan: zeros(5),
-          taxWan: zeros(5),
-          employees: zeros(5),
-          investWan: zeros(5),
+          // 招商候选企业（未落地庆阳）无工商年报，年度序列留空，不参与驾驶舱年度聚合
+          years: [],
+          revenueWan: [],
+          taxWan: [],
+          employees: [],
+          investWan: [],
         },
       },
       status: { biz: "正常", credit: "正常", performRate: 0 },

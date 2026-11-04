@@ -676,6 +676,110 @@
     return Math.abs(v) >= 10000 ? (v / 10000).toFixed(2) + ' 亿元' : v + ' 万元';
   }
 
+  /* ============ 强制技能：企业详情（doris-daas-query 口径的本地版） ============
+   * 四个智能体统一：命中平台企业 + 问基本情况/概况/详情/股东/财务/资质 → 走本报告六部分。
+   * 纯静态入口没有数据仓库，只能用平台 88 家真实工商年报数据作答：
+   * 能给的给全，给不到的明确写「需连接数据仓库查询」，不编造、不用行业均值顶替。
+   */
+  var PROFILE_Q_RE = /基本|概况|详情|详细|介绍|简介|档案|资料|是谁|做什么|干什么|主营|业务|规模|股东|股权|法人|注册资本|成立|地址|经营范围|财务|营收|利润|纳税|从业|员工|人数|专利|商标|资质|多大|多少|实力|背景|经营情况|经营状况|现状/;
+  var RISK_Q_RE = /风险|隐患|预警|异常|涉诉|诉讼|被执行|失信|限高|欠税|处罚|违法|违约|纠纷|尽调|合作/;
+
+  function isProfileQuestion(q) {
+    return PROFILE_Q_RE.test(q) && !RISK_Q_RE.test(q);
+  }
+
+  function buildProfileReport(ent) {
+    var ov = ent.overview || {};
+    var st = ent.status || {};
+    var na = '未获取';
+    var sh = (ent.shareholders || []).slice().sort(function (a, b) { return (b.ratio || 0) - (a.ratio || 0); });
+    var yr = ov.yearly || {};
+    var years = yr.years || [];
+    var revs = yr.revenueWan || [];
+    var taxes = yr.taxWan || [];
+    var out = [];
+
+    out.push('政信通团队 出品');
+    out.push('数据来源：平台主档（庆阳 88 家真实工商年报数据）');
+    out.push('');
+    out.push('【' + ent.name + ' 企业详情】');
+    out.push('');
+
+    out.push('**第一部分　工商登记信息**');
+    out.push('· 企业全称：' + ent.name);
+    out.push('· 统一社会信用代码：' + (ent.creditCode || na));
+    out.push('· 法定代表人：' + (ent.legal || na) + '｜成立日期：' + (ent.found || na));
+    out.push('· 注册资本：' + (ent.regCapitalFmt || ov.regCapital || na));
+    out.push('· 登记状态：' + (st.biz || na) + '｜信用状态：' + (st.credit || na));
+    out.push('· 属地：' + (ent.districtName || na) + '｜规模：' + (ent.scale || na));
+    out.push('· 行业：' + (ent.industryName || na) +
+      '（国标：' + ([ent.nationalIndustryL1, ent.nationalIndustry, ent.nationalIndustryL3].filter(Boolean).join(' / ') || na) + '）');
+    out.push('');
+
+    out.push('**第二部分　股权与治理**');
+    if (sh.length) {
+      out.push('| 股东 | 持股比例 |');
+      out.push('|---|---|');
+      sh.forEach(function (s) { out.push('| ' + s.name + ' | ' + (s.ratio == null ? na : s.ratio + '%') + ' |'); });
+      var top = sh[0];
+      out.push('· 实际控制人：' + ((top.ratio || 0) >= 50
+        ? '「' + top.name + '」持股 ' + top.ratio + '%，构成控股股东，控制路径清晰'
+        : '第一大股东「' + top.name + '」持股 ' + (top.ratio || 0) + '%，股权相对分散，需关注一致行动关系'));
+      out.push('· 对外投资、董监高名录：平台未收录，需连接数据仓库查询');
+    } else {
+      out.push('· 股东结构与实际控制人：' + na);
+    }
+    out.push('');
+
+    out.push('**第三部分　经营与财务**');
+    out.push('· 最新年报（' + (ov.finYear || na) + '）：营收 ' + (ov.revenue || na) + '、纳税 ' + (ov.tax || na) +
+      '、净利润 ' + (ov.profit || na) + '、资产总额 ' + (ov.assetTotal || na));
+    out.push('· 从业人数：' + (ov.employees == null ? '未公示' : ov.employees + ' 人'));
+    if (years.length) {
+      out.push('· 公示年度营收（万元）：' + years.map(function (y, i) {
+        return y + ' ' + (revs[i] == null ? '—' : revs[i]);
+      }).join('，'));
+      out.push('· 公示年度纳税（万元）：' + years.map(function (y, i) {
+        return y + ' ' + (taxes[i] == null ? '—' : taxes[i]);
+      }).join('，'));
+      out.push('· 说明：以上为工商年报实际公示年份（共 ' + years.length + ' 个年度），未公示年份不插值、不外推。');
+    }
+    out.push('');
+
+    out.push('**第四部分　司法与信用**');
+    out.push('· 司法案件 ' + (ent.judicialCount == null ? na : ent.judicialCount + ' 件') +
+      '｜被执行 ' + (ent.zhixingCount == null ? na : ent.zhixingCount + ' 条') +
+      '｜失信 ' + (ent.shixinCount == null ? na : ent.shixinCount + ' 条'));
+    out.push('· 招商履约率 ' + (st.performRate == null ? na : st.performRate + '%'));
+    var legal = (ent.records || []).filter(function (r) {
+      return /司法|诉讼|执行|失信/.test(String(r.type || '') + String(r.title || ''));
+    }).slice(0, 3);
+    if (legal.length) {
+      out.push('· 关键记录：' + legal.map(function (r) { return (r.date || '') + ' ' + (r.title || ''); }).join('；'));
+    }
+    out.push('');
+
+    out.push('**第五部分　知识产权与资质**');
+    out.push('· 专利 ' + (ent.patentCount == null ? na : ent.patentCount + ' 件') +
+      '（发明 ' + (ent.inventionCount == null ? na : ent.inventionCount + ' 件）') +
+      '｜商标 ' + (ent.trademarkCount == null ? na : ent.trademarkCount + ' 件') +
+      '｜招投标 ' + (ent.bidCount == null ? na : ent.bidCount + ' 次'));
+    out.push('· 资质证书、纳税信用等级：平台未接入，需连接数据仓库查询');
+    out.push('');
+
+    out.push('**第六部分　综合结论**');
+    out.push('· 企业定位：' + (ent.districtName || '—') + '·' + (ent.industryName || '—') + '，' +
+      (ent.scale || '规模未定') + '，登记状态' + (st.biz || '未获取'));
+    out.push('· 风险画像：八维综合 ' + (ent.riskScore == null ? na : ent.riskScore + ' 分') +
+      '（' + levelName(ent.riskLevel) + '）');
+    out.push('· 跟进建议：' + ((ent.riskScore || 0) >= 45
+      ? '风险偏高，建议先核实司法与财务状况再推进合作。'
+      : '风险可控，可列为重点跟踪对象，从其上下游配套需求切入。'));
+    out.push('');
+    out.push('（本回答基于平台收录的真实工商年报数据；股东穿透、对外投资、行政处罚、资质证书等明细需连接数据仓库查询。）');
+    return out.join('\n');
+  }
+
   function buildTracingReport(ent, mode) {
     var ov = ent.overview || {};
     var sh = ent.shareholders || [];
@@ -687,8 +791,9 @@
     var emps = yr.employees || [];
     var records = ent.records || [];
     var pledges = records.filter(function (r) { return /chattel|抵押|质押/.test(String(r.type || '') + String(r.title || '')); });
-    var n0 = revs.length ? revs[0] : null;
-    var n1 = revs.length ? revs[revs.length - 1] : null;
+    var realRevs = revs.filter(function (v) { return v != null; });
+    var n0 = realRevs.length ? realRevs[0] : null;
+    var n1 = realRevs.length ? realRevs[realRevs.length - 1] : null;
     var grow = (n0 && n1) ? Math.round((n1 / n0 - 1) * 100) : null;
     var shSorted = sh.slice().sort(function (a, b) { return (b.ratio || 0) - (a.ratio || 0); });
     var topSh = shSorted.length ? shSorted[0] : null;
@@ -779,10 +884,13 @@
       out.push('| 年份 | 事件 | 变化识别 | 风险推断 |');
       out.push('| --- | --- | --- | --- |');
       for (var i = 1; i < years.length; i++) {
-        var d = revs[i - 1] ? Math.round((revs[i] / revs[i - 1] - 1) * 100) : null;
-        out.push('| ' + years[i] + ' | 营收 ' + fw(revs[i]) + '，纳税 ' + fw(taxes[i]) +
+        var prev = revs[i - 1], cur = revs[i];
+        var gap = years[i] - years[i - 1];
+        var d = (prev != null && cur != null && prev > 0) ? Math.round((cur / prev - 1) * 100) : null;
+        var spanNote = gap > 1 ? '（较 ' + years[i - 1] + ' 年，间隔 ' + gap + ' 年）' : '';
+        out.push('| ' + years[i] + spanNote + ' | 营收 ' + fw(cur) + '，纳税 ' + fw(taxes[i]) +
           '，从业 ' + (emps[i] == null ? '未公示' : emps[i] + ' 人') + ' | ' +
-          (d == null ? '基线缺失' : (d >= 0 ? '同比增长 ' + d + '%' : '同比下降 ' + Math.abs(d) + '%')) + ' | ' +
+          (d == null ? '基线缺失' : (d >= 0 ? '增长 ' + d + '%' : '下降 ' + Math.abs(d) + '%')) + ' | ' +
           (d != null && d <= -20 ? '收入断崖，属突变' : (d != null && d < 0 ? '小幅回落，观察是否持续' : '持续向好，非风险')) + ' |');
       }
     } else {
@@ -796,14 +904,16 @@
     }
     out.push('');
     out.push('阶段归纳：' + (grow != null && grow >= 0
-      ? '近 ' + years.length + ' 年营收累计增长 ' + grow + '%，未见治理突变或信用崩塌迹象，风险处于低位区间。'
+      ? '公示的 ' + years.length + ' 个年度营收累计增长 ' + grow + '%（' + years[0] + '→' + years[years.length - 1] + '），未见治理突变或信用崩塌迹象，风险处于低位区间。'
       : '经营序列未呈单调向上，需重点关注收入与纳税的同步变化。'));
     out.push('');
 
     /* 第五部分 */
     out.push('**第五部分　风险识别**');
     var drops = 0;
-    for (var k = 1; k < revs.length; k++) if (revs[k - 1] && revs[k] / revs[k - 1] <= 0.8) drops++;
+    for (var k = 1; k < revs.length; k++) {
+      if (revs[k - 1] != null && revs[k] != null && revs[k - 1] > 0 && revs[k] / revs[k - 1] <= 0.8) drops++;
+    }
     out.push('· 突变：' + (drops ? '出现 ' + drops + ' 次同比降幅 ≥20% 的收入断崖。' : '无 — 营收序列未见断崖式下跌。'));
     out.push('· 恶化：' + (taxes.length > 1 && taxes[taxes.length - 1] < taxes[0]
       ? '纳税额较基期下降，需核实是否因经营收缩或税收优惠。' : '无 — 纳税与用工未见持续恶化。'));
@@ -849,8 +959,8 @@
 
   function answerInsight(q) {
     var ent = resolveEnterprise(q);
-    // 给定企业名称 → 强制走《企业风险溯源报告》六部分框架（技能硬约束）
-    if (ent) return buildTracingReport(ent, 'insight');
+    // 给定企业名称 → 强制走技能：详情类问题走「企业详情」，其余走《企业风险溯源报告》
+    if (ent) return isProfileQuestion(q) ? buildProfileReport(ent) : buildTracingReport(ent, 'insight');
     var d = resolveDistrict(q);
     if (d) {
       var list = entOfDistrict(d);
@@ -903,8 +1013,8 @@
 
   function answerRisk(q) {
     var ent = resolveEnterprise(q);
-    // 给定企业名称 → 强制走《企业风险溯源报告》六部分框架（技能硬约束）
-    if (ent) return buildTracingReport(ent, 'risk');
+    // 给定企业名称 → 强制走技能：详情类问题走「企业详情」，风险类走《企业风险溯源报告》
+    if (ent) return isProfileQuestion(q) ? buildProfileReport(ent) : buildTracingReport(ent, 'risk');
     var d = resolveDistrict(q);
     if (d) {
       var list = entOfDistrict(d).slice().sort(function (a, b) { return b.riskScore - a.riskScore; });
@@ -966,6 +1076,8 @@
     var ind = resolveIndustry(q);
     var ent = resolveEnterprise(q);
 
+    // 给定企业名称 + 问基本情况/股东/财务/资质 → 强制走「企业详情」技能
+    if (ent && isProfileQuestion(q)) return buildProfileReport(ent);
     if (ent) {
       var peers = M.ENTERPRISES.filter(function (e) { return e.industryName === ent.industryName; });
       return '【' + ent.name + ' 招商价值研判】\n\n' +
@@ -1046,6 +1158,8 @@
 
   function answerService(q) {
     var ent = resolveEnterprise(q);
+    // 给定企业名称 + 问基本情况/股东/财务/资质 → 强制走「企业详情」技能
+    if (ent && isProfileQuestion(q)) return buildProfileReport(ent);
     if (ent) {
       var pols = matchPolicies(ent, 5);
       return '【' + ent.name + ' 政策匹配】\n\n' +

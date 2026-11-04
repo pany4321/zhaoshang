@@ -21,6 +21,10 @@ export interface RawEnterprise {
   patentCount?: number; inventionCount?: number; trademarkCount?: number;
   judicialCount?: number; zhixingCount?: number; shixinCount?: number; bidCount?: number;
   assetTotal?: number | null; netProfit?: number | null; finYear?: string | null;
+  // 真实历年工商年报（annual_report.csv + employee.csv，年份数量各家不等，1~4 年）
+  // 缺失年份不做任何插值/推导 —— 曲线只画真实公示过的年份
+  financials?: Array<{ year: number; revenue: number | null; tax: number | null;
+                       asset: number | null; profit: number | null; employees: number | null }>;
   empYear?: string | null;   // 从业人数所属年报年份（最老可能为 2015，需可追溯）
   // 真实国标行业（company_industry，2017 国民经济行业分类，官方公示）
   // 与 industryId（招商视角 12 个产业，规则推导）并存，不可混用
@@ -199,18 +203,27 @@ export function mapEnterprise(e: RawEnterprise, cases: RawJudicialCase[] = []): 
   // employees 为 null 表示年报「选择不公示」从业人数
   const revPerEmp = (e.employees ?? 0) > 0 ? e.revenue / (e.employees as number) : 60
 
-  // 年度增长率（科技行业更高，稳定性由 id 保证）
-  let yearGrowth = r.float(-0.03, 0.18, 3)
-  if (['software', 'biomed', 'neequip'].includes(e.industryId || '')) {
-    yearGrowth = Math.max(0.03, yearGrowth + 0.06)
-  }
-  const years: number[] = []
-  const curYear = new Date().getFullYear()
-  for (let y = 0; y < 5; y++) years.push(curYear - 4 + y)
-  const yearlyRevenue = years.map((_, y) => Math.round(e.revenue * Math.pow(1 + yearGrowth, y - 4)))
-  yearlyRevenue[4] = e.revenue
+  // 历年序列：**只用真实工商年报**（e.financials，来自 annual_report.csv）。
+  // 2026-11 修正：原实现按「当前营收 × 随机年增长率」反推 5 年曲线，属编造数据；
+  // 真实年报年份各家 1~4 年不等，缺失年份**不插值、不外推**，曲线只画公示过的年份。
+  const fin = (e.financials || []).slice().sort((a, b) => a.year - b.year)
+  const years: number[] = fin.map(f => f.year)
+  const yearlyRevenue: (number | null)[] = fin.map(f => (f.revenue == null ? null : Math.round(f.revenue)))
+  const yearlyTax: (number | null)[] = fin.map(f => (f.tax == null ? null : Math.round(f.tax)))
+  const yearlyEmployees: (number | null)[] = fin.map(f => f.employees)
+  const yearlyAsset: (number | null)[] = fin.map(f => (f.asset == null ? null : Math.round(f.asset)))
+  const yearlyProfit: (number | null)[] = fin.map(f => (f.profit == null ? null : Math.round(f.profit)))
+  // 最近一个真实年度（用于月度序列的补齐基准，仍属形态估算）
+  const lastRealRevenue = (() => {
+    for (let i = yearlyRevenue.length - 1; i >= 0; i--) {
+      const v = yearlyRevenue[i]
+      if (v != null && v > 0) return v
+    }
+    return e.revenue
+  })()
 
-  // 月度经营序列（1 月 → 当月，不足 6 个月补齐）
+  // 月度经营序列（1 月 → 当月，不足 6 个月补齐）。年报只有年度值，月度形态属估算，
+  // 前端以「估算」标识呈现，不构成对月度实际发生的宣称。
   const monthsThisYear = Math.max(1, new Date().getMonth() + 1)
   const len = Math.max(6, monthsThisYear)
   const monthly: number[] = []
@@ -219,7 +232,7 @@ export function mapEnterprise(e: RawEnterprise, cases: RawJudicialCase[] = []): 
     monthly.push(Math.max(1, Math.round((e.revenue / 12) * season * (1 + r.float(-0.05, 0.05, 3)))))
   }
   while (monthly.length < len) {
-    monthly.unshift(Math.round((yearlyRevenue[3] / 12) * 1.15))
+    monthly.unshift(Math.round((lastRealRevenue / 12) * 1.15))
   }
   const taxArr = monthly.map(v => Math.round(v * taxRate))
   const investTotal = Math.max(e.investment, Math.round(e.revenue * 0.8)) || 1000
@@ -269,6 +282,11 @@ export function mapEnterprise(e: RawEnterprise, cases: RawJudicialCase[] = []): 
   const investFmt = e.investment >= 10000
     ? (e.investment / 10000).toFixed(1) + '亿元'
     : e.investment + '万元'
+  // 净利润 / 资产总额：取工商年报真实值（real-fixtures 的 netProfit / assetTotal）。
+  // 2026-11 修正：原实现为 `revenue × 随机 5%~20%`，属编造利润；缺失一律「未公示」。
+  const wanFmt = (n: number) => (n >= 10000 ? (n / 10000).toFixed(1) + '亿元' : n + '万元')
+  const profitFmt = e.netProfit == null ? '未公示' : wanFmt(e.netProfit)
+  const assetFmt = e.assetTotal == null ? '未公示' : wanFmt(e.assetTotal)
 
   // 动态（2~6 条，高风险企业更多风险类动态）
   const dynamics: { date: string; type: string; text: string }[] = []
@@ -331,13 +349,22 @@ export function mapEnterprise(e: RawEnterprise, cases: RawJudicialCase[] = []): 
       employees: e.employees,
       invest: investFmt,
       investWan: e.investment,
-      profit: Math.round(e.revenue * r.float(0.05, 0.2, 2)) + '万元',
+      profit: profitFmt,
+      profitWan: e.netProfit ?? null,
+      assetTotal: assetFmt,
+      assetWan: e.assetTotal ?? null,
+      finYear: e.finYear || null,
       yearly: {
         years,
         revenueWan: yearlyRevenue,
-        taxWan: yearlyRevenue.map(v => Math.round(v * taxRate)),
-        employees: yearlyRevenue.map(v => Math.max(5, Math.round(v / revPerEmp))),
-        investWan: yearlyRevenue.map((_, i) => Math.round(investTotal * (0.4 + (0.6 * i) / 4))),
+        taxWan: yearlyTax,
+        profitWan: yearlyProfit,
+        assetWan: yearlyAsset,
+        employees: yearlyEmployees,
+        // 历年固定资产投资：工商年报不公示，故一律 null（原实现按营收比例推导，已移除）
+        investWan: years.map(() => null),
+        // 标记：本序列全部来自真实工商年报，无插值/外推
+        real: years.length > 0,
       },
     },
     status: {
