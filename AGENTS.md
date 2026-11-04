@@ -59,7 +59,7 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 | `tools/export_demo_fixtures.cjs` 映射逻辑 | `npm run fixtures` → `npm run parity` → `npm run test:api` |
 | 需求说明书 / DEMO 文档 | 无自动校验；一切数据底数以 `npm run parity` 的输出为准，不得写入与 demo/server 冲突的数字 |
 
-### 工具速览（tools/ 全部 35 个，各自归位）
+### 工具速览（tools/ 全部 38 个，各自归位）
 
 **同步/生成（demo 是唯一基准，改 demo 后必跑）**
 - `sync_engine.py` — demo 引擎文件（含 style.css）→ `web/public/engine/`（内含 mock.js 再生）；`--check` 仅校验。`run_all` 首步自动执行该校验。
@@ -73,7 +73,7 @@ V5 全栈版（`server/` + `web/`）1:1 复刻全部 9 个 demo 页面：`GET /a
 
 **测试/校验（由 run_all 编排，一般不单独跑）**
 - `run_all.cjs` — 统一入口：首步引擎一致性前置检查（漂移即失败）→ 静态脚本 → server 在跑时追加接口回归（未运行 SKIP 并提示启动命令）。`npm test` 即它。
-- `smoke_test.js`（9 页渲染）、`smoke_interaction.js`（数据对账+下钻链路，失败即非零退出）、`check_invariants.js`（风险三态不变量）、`check_data_parity.cjs`（fixtures 对账）、`test_engine_rebuild.cjs`（web mock rebuild）、`verify_login.cjs`（demo 登录门禁）、`verify_industry_responsive.cjs`、`verify_profile_responsive.cjs`、`verify_policy_jump.cjs`（专项回归）、`verify_ai_lead_admission.js`（AI 推荐「确认纳入」线索字段真实性）、`verify_web_api.cjs`（server 接口链路，需运行中 server）。
+- `smoke_test.js`（9 页渲染）、`smoke_interaction.js`（数据对账+下钻链路，失败即非零退出）、`check_invariants.js`（风险三态不变量）、`check_data_parity.cjs`（fixtures 对账）、`check_kpi_consistency.cjs`（KPI 口径一致性：驾驶舱/企业概况/下钻列表三处「风险企业」必须相等，默认装载 real-data.js 跑线上 88 家，`--mock` 切模拟态）、`test_engine_rebuild.cjs`（web mock rebuild）、`verify_login.cjs`（demo 登录门禁）、`verify_industry_responsive.cjs`、`verify_profile_responsive.cjs`、`verify_policy_jump.cjs`（专项回归）、`verify_ai_lead_admission.js`（AI 推荐「确认纳入」线索字段真实性）、`verify_web_api.cjs`（server 接口链路，需运行中 server）。
 - 游离脚本：`verify_pdf_export.js`（PDF 导出全流程，改字体/导出链路时手动跑）。
 
 **运维 / 备份 / 隧道（仅部署环境需要，不进 run_all）**

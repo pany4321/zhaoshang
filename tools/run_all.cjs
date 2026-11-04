@@ -31,6 +31,7 @@ const SUITE = [
   ['smoke_interaction.js', '数据对账 + 下钻链路', true],
   ['check_invariants.js', '风险事件三态不变量', false],
   ['check_data_parity.cjs', 'fixtures 与 demo 口径对账', false],
+  ['check_kpi_consistency.cjs', 'KPI 口径一致性（风险企业：驾驶舱/概况/下钻三处相等）', true],
   ['test_engine_rebuild.cjs', '引擎 rebuild 冒烟', false],
   ['verify_login.cjs', 'demo 登录门禁', true],
   ['verify_industry_responsive.cjs', '驾驶舱环图响应式', true],
