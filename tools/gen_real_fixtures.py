@@ -42,6 +42,17 @@ INDUSTRY_RULES = [
     ('genequip',  ['机械', '制造', '设备', '装备', '管业', '机电']),
 ]
 
+# 人工核定的产业归口（优先级最高）：按统一社会信用代码覆盖下方关键词规则。
+# 用途：关键词规则对企业名称 + 经营范围做整体匹配，遇到「经营范围里含跨行业条目」时会误判，
+#      此处按主营业务人工纠偏。每条必须写清依据，便于审计追溯。
+INDUSTRY_OVERRIDE = {
+    # 甘肃圣越农牧发展有限公司（镇原县）：主营家禽屠宰 / 种畜禽生产 / 家禽饲养 / 饲料生产，
+    # 国标行业为「农副食品加工业 - 屠宰及肉类加工」；经营范围尾部「太阳能发电技术服务」
+    # 系厂区自用配套，不代表产业归口。关键词规则因 '太阳能' 先命中而误归 neequip。
+    # 2026-11-04 业务方核定，归入 agrifood（农副食品加工）。
+    '91621027571648601F': ('agrifood', '农牧主业（家禽屠宰/种畜禽/饲料），非新能源装备'),
+}
+
 IND_RISK = {
     'building': 1.22, 'chemical': 1.14, 'oilgas': 1.10, 'logistics': 1.06,
     'genequip': 1.02, 'agrifood': 1.00, 'wholesale': 1.00, 'agriequip': 0.98,
@@ -79,7 +90,10 @@ def dh(*parts) -> int:
     return int(h[:8], 16) % 10000
 
 
-def pick_industry(name: str, scope: str) -> str:
+def pick_industry(name: str, scope: str, credit_no: str = '') -> str:
+    # 人工核定优先（见 INDUSTRY_OVERRIDE），其次才走关键词规则
+    if credit_no and credit_no in INDUSTRY_OVERRIDE:
+        return INDUSTRY_OVERRIDE[credit_no][0]
     text = f'{name} {scope or ""}'
     for key, kws in INDUSTRY_RULES:
         for kw in kws:
@@ -585,7 +599,7 @@ def main():
             cap = float(r.get('capital_num') or 0)
         except (ValueError, TypeError):
             cap = 0.0
-        ind = pick_industry(name, r.get('business_scope', ''))
+        ind = pick_industry(name, r.get('business_scope', ''), cc)
         dist = DIST_MAP[r['district'].strip()]
         seed = cc
 
