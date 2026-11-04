@@ -5,6 +5,65 @@
 
 ---
 
+## v5.1.24 — 2026-11-04 · Doris 取数提速 55–77%，AI 回答可下载
+
+两个问题一起解决：智能体答一次要 8–30 秒（用户在等），AI 产出的表格/结论拿不走（只能看）。
+
+### 一、Doris 工具调用性能
+
+改前实测（同一后台、同一模型）：
+| 问题 | 改前耗时 | 根因 |
+|---|---|---|
+| 「营收前 5 企业」 | 27.4s | 先查本地再查仓库，多跑一轮 + 一次收口 |
+| 「中小企业融资难分析」 | 29.4s | 5 轮工具调用里前 2 轮全是 `doris_list_tables` + `doris_table_schema` |
+| 「全市制造业按区县」 | 19.2s **且答案错误** | 自行拼 SQL 用了 `annual_report_asset` 的 varchar 金额字段做数值比较 → `Error 1105`，整轮作废 |
+
+四项改动：
+
+| # | 改动 | 说明 |
+|---|---|---|
+| 1 | **新增 `server/src/services/dorisSchemaHint.ts`（表结构速查）** | 把 8 张核心表的表名/关键字段/枚举值/可抄 SQL 提前注入 system prompt，`doris_list_tables` + `doris_table_schema` 那两轮直接消失。**关键坑已固化进速查表**：`annual_report_asset` 的 `total_amount / business_income / tax_amount / debt_amount` 全是 varchar（含「万元」后缀或「不公示」），必须 `CAST(NULLIF(REGEXP_REPLACE(x,'[^0-9.]',''),'') AS DECIMAL(20,2))` 清洗后才能聚合 |
+| 2 | **按行业统计必须 JOIN `company_industry`** | `opt_company_base` 本身没有行业字段，模型原来会去猜字段名导致报错；速查表直接给出 `industry_l1_name` 和庆阳市制造业按区县的完整可套用 SQL |
+| 3 | **轮内工具并行** | `for (const tc of calls)` → `Promise.all(calls.map(...))`，同一轮 2–3 个 Doris 查询不再叠加延迟（实测日志可见 1 轮并发 2 条 query） |
+| 4 | **轮次 5 → 3 + 25s 软预算** | 每轮带 `timeoutMs = 剩余预算`，超时直接走强制收口，不再让用户白等；单条工具结果 6000 → 4000 字，减少后续轮 token |
+
+附带：`doris_list_tables` / `doris_table_schema` 结果进程内缓存 10 分钟（表结构在一次演示内不变），重复追问时不再打 MCP。
+
+提示词同步收口：**平台自有的 88 家企业相关问题禁止调 `doris_query`**（本地 `query_enterprises` 更快且更准），只有明确超出样本的全库统计/明细才查仓库。
+
+改后实测：
+| 问题 | 改后 | 提升 |
+|---|---|---|
+| 「营收前 5 企业」 | **6.2s** | -77% |
+| 「中小企业融资难分析」 | **13.2s** | -55%（且 0 轮工具，直接用概览数据作答） |
+| 「全市制造业按区县」 | **8.4s 且答案正确**（8,510 家，西峰 2,989） | -56%，从「答不出」到「答得准」 |
+
+### 二、AI 回答可下载
+
+`demo/assets/js/pages/aidemo.js`：
+
+- 每条 AI 回答下方加「下载 MD」按钮，把原始 Markdown 存成 `{智能体名}-{YYYYMMDD-HHmm}.md`；
+- 回答里含 Markdown 表格时，额外出现「下载表格 CSV」，解析第一张表格走 `C.exportCSV`（带 UTF-8 BOM，Excel 打开中文不乱码）；
+- 用 **data URI 而非 Blob URL**（`file://` 直开 demo 时 `download` 属性才稳定生效，与项目既有导出约定一致）；
+- 事件用委托挂在 `#aiMessages`，消息区整块重绘不会丢绑定；
+- 纯前端生成，不占服务端带宽，也不新增接口。
+
+按上一轮约定**没有**加「复制」按钮。
+
+### 三、验证
+
+- `npm run sync` → `npm test`（14 脚本全绿）→ `build:web` → 重启 5443 → 公网 200
+- `ENGINE_VER` `20261104a` → `20261104b`
+- 浏览器实测（`zs.195656.xyz/aidemo`）：纯文本回答只出「下载 MD」，点击生成 `<a download>` 并提示「已导出 Markdown 文件」；表格回答多出「下载表格 CSV」，点击提示「已导出表格 5 行」（表体 6 行 = 1 表头 + 5 数据）
+
+### 已知项
+
+1. 表结构速查是静态文本，仓库新增表时需手工补 `dorisSchemaHint.ts`（缓存 10 分钟，改完重启即生效）。
+2. CSV 只导第一张表格；一次回答里的多张表需要分次导出。
+3. GitHub 推送仍未恢复（deploy key `Permission denied (publickey)`），本次改动仅本地 commit + tag。
+
+---
+
 ## v5.1.23 — 2026-11-04 · 大模型输出统一渲染：5 个 AI 出口全部可读化
 
 AI 功能一直"能用但难看"：模型返回的真 Markdown 只有一套半成品渲染器（只认 `**粗体**` 和

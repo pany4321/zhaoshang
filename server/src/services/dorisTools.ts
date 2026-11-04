@@ -13,6 +13,27 @@ import type { ToolDef } from './llm.js'
 const MAX_SQL_LEN = 4000
 const DEFAULT_LIMIT = 100
 
+/**
+ * 元数据查询缓存（表清单 / 表结构）
+ *
+ * 表结构在一次演示里不会变，但模型经常会为同一张表连查两三次结构
+ * （尤其多轮追问时），每次都打一次 MCP 就是纯浪费。
+ * 10 分钟内命中缓存，直接返回上次的文本。
+ */
+const META_TTL_MS = 10 * 60 * 1000
+const metaCache = new Map<string, { at: number; text: string }>()
+
+async function cachedMeta(key: string, fetcher: () => Promise<string>): Promise<string> {
+  const hit = metaCache.get(key)
+  if (hit && Date.now() - hit.at < META_TTL_MS) {
+    console.log(`[ai] 元数据命中缓存 ${key}`)
+    return hit.text
+  }
+  const text = await fetcher()
+  metaCache.set(key, { at: Date.now(), text })
+  return text
+}
+
 /** 禁止出现的写操作/危险关键字（整词匹配） */
 const FORBIDDEN = [
   'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'CREATE',
@@ -107,13 +128,18 @@ export function toolsAvailable(): boolean {
 /** 执行一个工具调用，返回给模型看的文本结果 */
 export async function runDorisTool(name: string, args: Record<string, any>): Promise<string> {
   if (name === 'doris_list_tables') {
-    return await mcpCallTool('list_domains', {})
+    return await cachedMeta('list_domains', () => mcpCallTool('list_domains', {}))
   }
 
   if (name === 'doris_table_schema') {
     const table = String(args?.table_name || '').trim()
     if (!table) return '错误：缺少 table_name'
-    return await mcpCallTool('get_table_detail', { tables: [table] })
+    // 单表结构结果动辄上万字符，回灌前裁到 4000 字（字段表头部就是最常用的列）
+    const text = await cachedMeta('schema:' + table, () =>
+      mcpCallTool('get_table_detail', { tables: [table] })
+    )
+    return text.length > 4000 ? `${text.slice(0, 4000)}
+…（结构较长已截断，需要的列通常已在上面）` : text
   }
 
   if (name === 'doris_query') {

@@ -35,6 +35,67 @@
   }
 
   /* ------------------------------------------------------------
+   * 对话成果物下载：模型回答一键落成文件（纯前端，不占服务端带宽）
+   *   - 回答里含 Markdown 表格 → 导出 CSV（复用 C.exportCSV，带 BOM 防 Excel 乱码）
+   *   - 任意回答 → 导出原始 Markdown，保留结构给汇报/存档用
+   * ------------------------------------------------------------ */
+  function mdSplitPipe(line) {
+    return line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) {
+      return c.trim().replace(/\*\*/g, '').replace(/`/g, '');
+    });
+  }
+
+  /** 取回答里的第一张 Markdown 表格；没有则返回 null */
+  function aiExtractTable(text) {
+    var lines = String(text || '').split('\n');
+    for (var i = 0; i < lines.length - 1; i++) {
+      var head = lines[i].trim();
+      var sep = (lines[i + 1] || '').trim();
+      if (/^\|.*\|$/.test(head) && /^\|[\s:|-]*$/.test(sep) && sep.indexOf('-') > -1) {
+        var rows = [];
+        var j = i + 2;
+        while (j < lines.length && /^\|.*\|$/.test(lines[j].trim())) {
+          rows.push(mdSplitPipe(lines[j].trim()));
+          j++;
+        }
+        return { head: mdSplitPipe(head), rows: rows };
+      }
+    }
+    return null;
+  }
+
+  function dlStamp() {
+    var d = new Date();
+    var p = function (x) { return x < 10 ? '0' + x : '' + x; };
+    return '' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes());
+  }
+
+  function downloadTextFile(name, text, mime) {
+    // data URI 而非 Blob URL：file:// 直开 demo 时 download 属性才稳定生效
+    var url = 'data:' + mime + ';charset=utf-8,' + encodeURIComponent('\ufeff' + text);
+    var a = U.el('a', { href: url, download: name, style: 'display:none;' });
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 200);
+  }
+
+  function downloadAiAnswer(idx, kind) {
+    var msg = (conversations[currentAgent] || [])[idx];
+    if (!msg || !msg.content) return;
+    var agent = agents.filter(function (a) { return a.key === currentAgent; })[0] || agents[0];
+    var base = (agent ? agent.name : 'AI回答') + '-' + dlStamp();
+    if (kind === 'csv') {
+      var t = aiExtractTable(msg.content);
+      if (!t) { C.toast('这条回答里没有可导出的表格', 'warning'); return; }
+      C.exportCSV(base, t.head, t.rows);
+      C.toast('已导出表格 ' + t.rows.length + ' 行', 'success');
+      return;
+    }
+    downloadTextFile(base + '.md', msg.content, 'text/markdown');
+    C.toast('已导出 Markdown 文件', 'success');
+  }
+
+  /* ------------------------------------------------------------
    * 大模型调用：走后端 /api/ai/chat/:agentType
    * 后端已注入平台实时数据 + 多轮历史，此处只负责传输与失败回退。
    * 纯前端离线打开 demo/index.html 时 fetch 会失败，自动回退本地预脚本回复。
@@ -180,6 +241,15 @@
         sendMessage();
       }
     });
+    // 成果物下载（事件委托：消息区会整块重绘，不能逐条绑）
+    var dlBox = U.$('#aiMessages');
+    if (dlBox) {
+      dlBox.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest('.msg-tool') : null;
+        if (!btn) return;
+        downloadAiAnswer(+btn.getAttribute('data-idx'), btn.getAttribute('data-dl'));
+      });
+    }
     U.$$('.quick-q').forEach(function(q){
       q.addEventListener('click', function(){
         U.$('#aiInput').value = q.dataset.q;
@@ -214,7 +284,7 @@
     var pf = function (x) { return x < 10 ? '0' + x : '' + x; };
     return pf(d.getHours()) + ':' + pf(d.getMinutes());
   }
-  function msgToHtml(msg) {
+  function msgToHtml(msg, idx) {
     var isUser = msg.role === 'user';
     var agent = agents.filter(function(a){return a.key===currentAgent;})[0] || agents[0];
     var miniIcon = agent.icon.replace('width="20" height="20"', 'width="15" height="15"');
@@ -232,6 +302,14 @@
         '<div class="msg-name" style="display:flex;align-items:baseline;gap:8px;"><span>' + name + '</span>' +
           (time ? '<span style="font-size:10px;color:#CBD5E1;font-weight:400;">' + time + '</span>' : '') + '</div>' +
         contentHtml +
+        (!isUser && msg.type !== 'thinking' && msg.content
+          ? '<div class="msg-tools">' +
+              '<button class="msg-tool" data-dl="md" data-idx="' + idx + '" title="把这条回答保存为 Markdown 文件">下载 MD</button>' +
+              (aiExtractTable(msg.content)
+                ? '<button class="msg-tool" data-dl="csv" data-idx="' + idx + '" title="把回答中的表格导出为 CSV">下载表格 CSV</button>'
+                : '') +
+            '</div>'
+          : '') +
       '</div>' +
     '</div>';
   }
@@ -341,7 +419,7 @@
     var msgBox = U.$('#aiMessages');
     if (!msgBox) return;
     var conv = conversations[currentAgent];
-    msgBox.innerHTML = conv.map(msgToHtml).join('');
+    msgBox.innerHTML = conv.map(function (m, i) { return msgToHtml(m, i); }).join('');
     msgBox.scrollTop = msgBox.scrollHeight;
   }
 

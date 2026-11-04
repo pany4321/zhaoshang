@@ -4358,4 +4358,20 @@ input[type="range"].rw-slider::-moz-range-thumb {
 .ai-sec .md-list { font-size: inherit; color: inherit; }
 .ai-sec .md-h { font-size: inherit; margin: 8px 0 5px; }
 .ai-sec .md-table { font-size: 11.5px; }
+/* 对话成果物下载条（AI 回答下方的 MD / CSV 导出） */
+.msg-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.msg-tool {
+  padding: 3px 9px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #64748B;
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.msg-tool:hover { color: #2563EB; border-color: #BFDBFE; background: #EFF6FF; }
+.msg-tool:active { transform: translateY(0.5px); }
 .msg-text strong { color: #0F172A; font-weight: 650; }

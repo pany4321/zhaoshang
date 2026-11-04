@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js'
 import { ok, fail } from '../utils/helper.js'
 import { llmChat, llmConfigured, llmChatWithTools, AGENT_SYSTEM } from '../services/llm.js'
 import { DORIS_TOOLS, runDorisTool, toolsAvailable } from '../services/dorisTools.js'
+import { DORIS_SCHEMA_HINT } from '../services/dorisSchemaHint.js'
 import { AI_TOOLS, executeTool } from '../services/aiTools.js'
 
 /** 未公示字段（null）在提示词里显式标注，避免拼成 "纳税：null 万元" 被模型当成数值误读。
@@ -207,6 +208,11 @@ export default async function (fastify: FastifyInstance) {
               .map((m: any) => ({ role: m.role, content: String(m.content).slice(0, 600) }))
           : []
 
+        // 工具集：本地 Prisma 查询 + 数据仓库 MCP 深度查询（MCP 未配置时自动降级为仅本地工具）
+        const dorisNames = new Set(DORIS_TOOLS.map(t => t.function.name))
+        const dorisOn = toolsAvailable()
+        const allTools = dorisOn ? [...AI_TOOLS, ...DORIS_TOOLS] : AI_TOOLS
+
         const msgs: any[] = [
           {
             role: 'system',
@@ -215,6 +221,8 @@ export default async function (fastify: FastifyInstance) {
               '',
               '【平台数据概览】',
               ctx,
+              // 表结构速查只在数据仓库可用时注入，省掉「列域→查结构」的 2 轮工具调用
+              ...(dorisOn ? ['', DORIS_SCHEMA_HINT] : []),
               '',
               '【工具使用规则】',
               '1. 概览数据只含汇总，若用户问的是具体企业、具体区县的企业名单、某企业的细节，必须调用工具查询，不要凭概览猜测；',
@@ -222,7 +230,7 @@ export default async function (fastify: FastifyInstance) {
               '3. 工具返回 total 大于 returned 时，说明只看到部分数据，回答中要说明"共 N 家，列举前 M 家"；',
               '4. 工具返回 error 时，如实告知用户数据不支持，不要假装知道。',
               '5. 当问题超出平台样本数据范围（如全市全量企业统计、历史年报、招投标明细、行政处罚明细、跨表关联），使用 doris_query 查询数据仓库；',
-              '6. 写 SQL 前若不确定表名或字段名，先调用 doris_list_tables / doris_table_schema 确认，严禁猜测表名；',
+              '6. 数据仓库的表名与关键字段已在下方向你提供，直接据此写 SQL；只有速查表里没有的表才调用 doris_list_tables，严禁猜测表名；',
               '7. doris_query 只能执行单条 SELECT，必须填写 purpose 说明查询目的；查询结果同样视为权威数据，不得改写数字；',
               '8. 严禁向用户请示"是否继续取数/请确认口径"——你应当自主完成全部查询步骤后直接给出结论；只有确实查不到数据时才说明缺口。',
             ].join('\n'),
@@ -231,17 +239,32 @@ export default async function (fastify: FastifyInstance) {
           { role: 'user', content: message },
         ]
 
-        // 工具集：本地 Prisma 查询 + 数据仓库 MCP 深度查询（MCP 未配置时自动降级为仅本地工具）
-        const dorisNames = new Set(DORIS_TOOLS.map(t => t.function.name))
-        const allTools = toolsAvailable() ? [...AI_TOOLS, ...DORIS_TOOLS] : AI_TOOLS
-
-        // 工具调用循环：最多 5 轮（MCP 深度查询需 列域→结构→取数→修正 多步）
+        // 工具调用循环：最多 3 轮（速查表已把「列域→结构」压掉，正常是 取数→补一条→结论）
+        // 整体软预算 22s：到点用已拿到的结果强制收口，避免用户在 30s+ 白屏等待
         let finalText = ''
         let toolRounds = 0
         const calledTools: string[] = []
         const toolResults: { name: string; text: string }[] = []
-        for (let round = 0; round < 5; round++) {
-          const msg = await llmChatWithTools(msgs, allTools)
+        const t0 = Date.now()
+        const SOFT_BUDGET_MS = 25000
+
+        for (let round = 0; round < 3; round++) {
+          const left = SOFT_BUDGET_MS - (Date.now() - t0)
+          if (left < 5000) {
+            console.warn(`[ai] 软预算用尽（已 ${Math.round((Date.now() - t0) / 1000)}s），转强制收口`)
+            break
+          }
+          let msg: any
+          try {
+            // 最后一次调用只给剩余预算：超时抛错后直接走收口，不让用户干等
+            msg = await llmChatWithTools(msgs, allTools, {
+              timeoutMs: Math.max(8000, left),
+              maxTokens: 6000,
+            })
+          } catch (llmErr: any) {
+            console.warn('[ai] 工具轮调用失败/超时：', llmErr?.message || llmErr)
+            break
+          }
           const calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : []
 
           if (!calls.length) {
@@ -251,7 +274,9 @@ export default async function (fastify: FastifyInstance) {
 
           toolRounds++
           msgs.push({ role: 'assistant', content: msg.content || '', tool_calls: calls })
-          for (const tc of calls) {
+
+          // 同一轮内的多个工具调用并行执行：Doris 查询是 IO 等待，串行会把延迟叠加
+          const settled = await Promise.all(calls.map(async (tc: any) => {
             const fname = tc?.function?.name || ''
             let fargs: Record<string, any> = {}
             try {
@@ -270,12 +295,16 @@ export default async function (fastify: FastifyInstance) {
               console.warn(`[ai] 工具 ${fname} 执行失败：`, toolErr?.message || toolErr)
               result = `工具执行失败：${String(toolErr?.message || toolErr).slice(0, 200)}。可改用其他数据维度回答，或如实告知用户该数据暂不可得。`
             }
-            // 单条工具结果限长，避免上下文爆掉
-            const trimmed = String(result).slice(0, 6000)
-            msgs.push({ role: 'tool', tool_call_id: tc.id, content: trimmed })
-            toolResults.push({ name: fname, text: trimmed })
+            // 单条工具结果限长：4000 字≈30 行明细，足够模型写结论且不撑爆上下文
+            return { id: tc.id, fname, text: String(result).slice(0, 4000) }
+          }))
+
+          for (const r of settled) {
+            msgs.push({ role: 'tool', tool_call_id: r.id, content: r.text })
+            toolResults.push({ name: r.fname, text: r.text })
           }
         }
+        console.log(`[ai] 工具轮 ${toolRounds} 轮 / 已耗时 ${Math.round((Date.now() - t0) / 1000)}s / 调用 ${calledTools.join(',') || '无'}`)
 
         // 轮次用尽仍在调用工具时强制收口：用已拿到的结果单独请求一次结论，不再给工具
         if (!finalText && toolResults.length) {
