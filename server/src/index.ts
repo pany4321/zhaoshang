@@ -129,7 +129,19 @@ app.addHook('onResponse', async (request: any, reply: any) => {
 
 // 静态文件 — 前端构建产物
 // 生产部署：web/dist/* 拷到 server/public，与 API 同进程同端口（单体部署）
-const publicDir = path.resolve(__dirname, '../public')
+//
+// 路径取决于 tsconfig 的 rootDir（编译产物层级会变），三种运行形态都要能跑：
+//   tsx 直跑 src/index.ts   → __dirname = server/src       → ../public   = server/public ✓
+//   rootDir=src  → dist/index.js     → __dirname = server/dist      → ../public   = server/public ✓
+//   rootDir=.    → dist/src/index.js  → __dirname = server/dist/src  → ../../public = server/public ✓
+// 写死相对层级会在 rootDir 变更时静默 404（静态资源全挂、API 仍 200，极难察觉），
+// 故按候选目录探测，以 index.html 存在为准。
+const publicDir =
+  [
+    path.resolve(__dirname, '../public'),
+    path.resolve(__dirname, '../../public'),
+  ].find((p) => fs.existsSync(path.join(p, 'index.html'))) ??
+  path.resolve(__dirname, '../public')
 app.register(fastifyStatic, {
   root: publicDir,
   prefix: '/',
