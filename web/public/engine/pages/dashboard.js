@@ -190,9 +190,30 @@
       if (y && y.years) y.years.forEach(function (yy) { yearSet[yy] = 1; });
     });
     var realYears = Object.keys(yearSet).map(Number).sort(function (a, b) { return a - b; });
-    var yearLabels = realYears.map(function (yy) { return yy + '年'; });
-    var yearRevenue = [], yearTax = [], yearEmploy = [], yearInvest = [], yearCover = [];
+
+    // 覆盖家数明显偏少的年份不并入折线：真实年报年份各家不齐（2022 年仅 13 家、
+    // 2023 年 45 家、2024 年 51 家、2025 年 54 家），同图对比会被误读成"断崖下滑"。
+    // 阈值取「覆盖最多那一年的 60%」——自适应数据变化，不写死年份；若全部年份都不足则退回全展示。
+    var coverOf = {};
     realYears.forEach(function (yy) {
+      var c = 0;
+      ents.forEach(function (e) {
+        var y = e.overview && e.overview.yearly;
+        if (!y || !y.years) return;
+        var i = y.years.indexOf(yy);
+        if (i >= 0 && y.revenueWan && y.revenueWan[i] != null) c++;
+      });
+      coverOf[yy] = c;
+    });
+    var maxCover = 0;
+    realYears.forEach(function (yy) { if (coverOf[yy] > maxCover) maxCover = coverOf[yy]; });
+    var minCover = Math.ceil(maxCover * 0.6);
+    var showYears = realYears.filter(function (yy) { return coverOf[yy] >= minCover; });
+    if (!showYears.length) showYears = realYears;
+
+    var yearLabels = showYears.map(function (yy) { return yy + '年'; });
+    var yearRevenue = [], yearTax = [], yearEmploy = [], yearInvest = [], yearCover = [];
+    showYears.forEach(function (yy) {
       var rv = 0, tx = 0, em = 0, iv = 0, cover = 0, coverTax = 0, coverEmp = 0, coverInv = 0;
       ents.forEach(function (e) {
         var y = e.overview && e.overview.yearly;

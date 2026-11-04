@@ -112,16 +112,29 @@ def main():
             stats[0] += 1
             continue
         rows = []
+        blank = 0
         for y in sorted(years):
             d = years[y]
             if d.get('revenue') is None and d.get('profit') is None and d.get('asset') is None:
                 continue
-            rows.append({'year': y,
-                         'revenue': d.get('revenue'),
-                         'tax': d.get('tax'),
-                         'asset': d.get('asset'),
-                         'profit': d.get('profit'),
-                         'employees': d.get('employees')})
+            row = {'year': y,
+                   'revenue': d.get('revenue'),
+                   'tax': d.get('tax'),
+                   'asset': d.get('asset'),
+                   'profit': d.get('profit'),
+                   'employees': d.get('employees')}
+            # 整行全空（营收/纳税/资产/净利润 全为 0 或空，且无从业人数）= 年报未填数值。
+            # 这是源数据的占位写法，不是"企业当年经营归零"，全部置 None 并计数，
+            # 避免前端把它画成一根 0 值柱（2026-11-05 用户拍板：此类改 null）。
+            vals = [row['revenue'], row['tax'], row['asset'], row['profit']]
+            if all(v in (None, 0, 0.0) for v in vals) and row['employees'] in (None, 0):
+                for k in ('revenue', 'tax', 'asset', 'profit'):
+                    row[k] = None
+                row['employees'] = None
+                blank += 1
+            rows.append(row)
+        if blank:
+            print(f'  · {e.get("name")}: {blank} 个年度整行全空 → 置 null（视为年报未填数值）')
         e['financials'] = rows
         stats[len(rows)] += 1
 

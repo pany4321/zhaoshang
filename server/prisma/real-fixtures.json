@@ -5041,10 +5041,10 @@
     },
     {
      "year": 2025,
-     "revenue": 0.0,
-     "tax": 0.0,
-     "asset": 0.0,
-     "profit": 0.0,
+     "revenue": null,
+     "tax": null,
+     "asset": null,
+     "profit": null,
      "employees": null
     }
    ]
@@ -8381,10 +8381,10 @@
     },
     {
      "year": 2025,
-     "revenue": 0.0,
-     "tax": 0.0,
+     "revenue": null,
+     "tax": null,
      "asset": null,
-     "profit": 0.0,
+     "profit": null,
      "employees": null
     }
    ]
