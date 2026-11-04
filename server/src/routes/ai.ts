@@ -1,8 +1,9 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../utils/prisma.js'
 import { ok, fail } from '../utils/helper.js'
-import { llmChat, llmConfigured, llmChatWithTools, AGENT_SYSTEM, RISK_TRACING_SKILL } from '../services/llm.js'
+import { llmChat, llmConfigured, llmChatWithTools, AGENT_SYSTEM, RISK_TRACING_SKILL, ENTERPRISE_PROFILE_SKILL } from '../services/llm.js'
 import { DORIS_TOOLS, runDorisTool, toolsAvailable } from '../services/dorisTools.js'
+import { prefetchCompanyFacts } from '../services/dorisPrefetch.js'
 import { DORIS_SCHEMA_HINT } from '../services/dorisSchemaHint.js'
 import { AI_TOOLS, executeTool } from '../services/aiTools.js'
 import { buildAnswerFile, detectExportIntent, getExport, stamp } from '../services/aiExport.js'
@@ -74,7 +75,8 @@ function getReply(agent: string, msg: string): string {
  * ============================================================ */
 
 /** 智能体中需要强制技能的：企业洞察 / 风险研判 */
-const SKILL_AGENTS = new Set(['insight', 'risk'])
+// 四个智能体统一生效：命中具体企业即进入对应技能协议（早期仅 insight/risk 生效）
+const SKILL_AGENTS = new Set(['insight', 'risk', 'plan', 'service'])
 
 /** 去掉行政区划前缀与组织形式后缀，得到可用于简称匹配的核心词 */
 function coreName(name: string): string {
@@ -100,6 +102,36 @@ function nameAliases(name: string): string[] {
   // 前缀子串兜底（4~6 字），覆盖用户只说前几个字的情形
   for (const n of [6, 5, 4]) if (core.length > n) set.add(core.slice(0, n))
   return [...set].filter((s) => s.length >= 4)
+}
+
+/**
+ * 企业类提问的强制技能路由（四个智能体统一生效）
+ * - risk：给了企业名且问风险 → enterprise-risk-tracing-report 六部分溯源报告
+ * - profile：给了企业名且问基本情况/概况/详情 → doris-daas-query 口径六部分企业详情
+ */
+const RISK_INTENT_RE =
+  /风险|隐患|预警|异常|涉诉|诉讼|被执行|失信|限高|终本|欠税|处罚|违法|违约|纠纷|黑名单|尽调|尽职调查|能不能合作|可以合作|能否合作|是否稳定/
+const PROFILE_INTENT_RE =
+  /基本|概况|详情|详细|介绍|简介|档案|资料|是谁|做什么|干什么|主营|业务|规模|股东|股权|法人|法定代表人|注册资本|实缴|成立|地址|经营范围|财务|营收|营业收入|利润|纳税|缴税|从业|员工|人数|专利|商标|资质|多大|多少|实力|背景/
+
+export function detectEnterpriseIntent(text: string): 'risk' | 'profile' | 'none' {
+  const t = String(text || '')
+  if (RISK_INTENT_RE.test(t)) return 'risk'
+  if (PROFILE_INTENT_RE.test(t)) return 'profile'
+  // 只提了企业名但没问画像/风险（如「能申报哪些政策」「帮我找匹配的项目」）：
+  // 不套六段报告，交回各智能体本职，但保留企业主档上下文
+  return 'none'
+}
+
+/** 文本里出现「像企业全称」的串，但平台样本库中没有 → 走 Doris 外部检索 */
+export function looksLikeCompanyName(text: string): string | null {
+  const t = String(text || '')
+  const re =
+    /[\u4e00-\u9fa5A-Za-z0-9（）()·]{2,30}?(?:股份有限公司|有限责任公司|有限公司|集团有限公司|集团|合作社|合伙企业|研究院|事务所|厂)/g
+  const hits = t.match(re) || []
+  if (!hits.length) return null
+  hits.sort((a, b) => b.length - a.length)
+  return hits[0] ?? null
 }
 
 export async function detectEnterprise(
@@ -142,7 +174,7 @@ async function buildEnterpriseDossier(entId: string): Promise<string> {
   if (!e) return ''
   const nn = (v: any, u = '') => (v === null || v === undefined ? '未公示' : `${v}${u}`)
   const L: string[] = []
-  L.push('【平台已掌握的主档数据——直接引用，不要再调用工具重复查这些字段】')
+  L.push('【平台已掌握的主档数据——以下字段直接引用，不必再调工具重复查询；未覆盖的维度可用 doris_query 补齐】')
   L.push(`企业：${e.name}｜统一社会信用代码 ${e.creditCode}｜${e.district?.name || '区县未定'}｜${e.industry?.name || '行业未定'}｜${e.scale}｜经营状态 ${e.bizStatus}｜信用状态 ${e.creditStatus}`)
   L.push(`登记：法定代表人 ${e.legal}，成立 ${e.found}，注册资本 ${e.regCapital}`)
   L.push(`国标行业：${[e.nationalIndustryL1, e.nationalIndustry, e.nationalIndustryL3].filter(Boolean).join(' / ') || '未获取'}`)
@@ -167,7 +199,9 @@ async function buildEnterpriseDossier(entId: string): Promise<string> {
       .map((r: any) => `${r.foundDate} ${r.dimensionName} ${r.title}`)
       .join('；')}`)
   }
-  L.push('以上未列出的维度（行政处罚 / 欠税公告 / 经营异常 / 纳税信用等级 / 资质证书 / 舆情）平台未接入，报告中写「未获取」，不要调用工具去猜。')
+  L.push(
+    '以上未列出的维度（对外投资 / 行政处罚 / 欠税公告 / 经营异常 / 纳税信用等级 / 资质证书 / 招投标明细 / 工商变更）平台主档未接入，可用 doris_query 补齐（表名先 doris_list_tables 确认，不要猜）；工具也查不到则写「未获取」，不要凭空推测。'
+  )
   return L.join('\n')
 }
 
@@ -316,21 +350,70 @@ export default async function (fastify: FastifyInstance) {
     let llmUsed = false
     // 企业名称识别：命中平台企业库即对本轮强制启用《企业风险溯源报告》技能
     const skillEnt = SKILL_AGENTS.has(agentType) ? await detectEnterprise(message) : null
-    const dossier = skillEnt ? await buildEnterpriseDossier(skillEnt.id) : ''
-    const systemPrompt = skillEnt
-      ? [
-          AGENT_SYSTEM[agentType] || AGENT_SYSTEM.service,
-          '',
-          RISK_TRACING_SKILL,
-          '',
-          '【本轮已锁定报告主体】',
-          `${skillEnt.name}（统一社会信用代码 ${skillEnt.creditCode}）`,
-          '主体已由平台确认，不必再检索同名企业；请直接围绕该企业完整输出六部分报告。',
-          '',
-          dossier,
-        ].join('\n')
-      : AGENT_SYSTEM[agentType] || AGENT_SYSTEM.service
-    if (skillEnt) console.log(`[ai] 强制技能 enterprise-risk-tracing-report → ${skillEnt.name}`)
+    // 意图分流：给了企业名 + 问风险 → 风险溯源；给了企业名 + 问基本情况/详情 → 企业详情（doris-daas-query 口径）
+    const skillIntent: 'risk' | 'profile' | 'none' = detectEnterpriseIntent(message)
+    const skillName = skillIntent === 'risk' ? 'enterprise-risk-tracing-report' : 'doris-daas-query(企业详情)'
+    const skillProto = skillIntent === 'risk' ? RISK_TRACING_SKILL : ENTERPRISE_PROFILE_SKILL
+    const extEnt = skillEnt ? null : looksLikeCompanyName(message)
+    // 平台主档（88 家）+ Doris 实时取数（任意企业，含库外）——两路并行，互不阻塞
+    const [dossier, dorisFacts] = await Promise.all([
+      skillEnt ? buildEnterpriseDossier(skillEnt.id) : Promise.resolve(''),
+      skillIntent === 'none'
+        ? Promise.resolve('')
+        : skillEnt
+          ? prefetchCompanyFacts({ creditCode: skillEnt.creditCode, companyName: skillEnt.name })
+          : extEnt
+            ? prefetchCompanyFacts({ companyName: extEnt })
+            : Promise.resolve(''),
+    ])
+    let systemPrompt: string
+    if (skillEnt && skillIntent === 'none') {
+      // 只提了企业名、问的是政策/项目/服务等本职问题：不套六段报告，只给企业上下文
+      systemPrompt = [
+        AGENT_SYSTEM[agentType] || AGENT_SYSTEM.service,
+        '',
+        '【本轮企业上下文（平台主档，可直接引用）】',
+        `${skillEnt.name}（统一社会信用代码 ${skillEnt.creditCode}）`,
+        '',
+        dossier,
+      ].join('\n')
+      console.log(`[ai] 企业上下文注入（不套技能）→ ${skillEnt.name}`)
+    } else if (skillEnt) {
+      systemPrompt = [
+        AGENT_SYSTEM[agentType] || AGENT_SYSTEM.service,
+        '',
+        skillProto,
+        '',
+        '【本轮已锁定分析主体】',
+        `${skillEnt.name}（统一社会信用代码 ${skillEnt.creditCode}）`,
+        skillIntent === 'risk'
+          ? '主体已由平台确认，不必再检索同名企业；请直接围绕该企业完整输出六部分风险溯源报告。'
+          : '主体已由平台确认，不必再检索同名企业；请直接围绕该企业完整输出六部分企业详情。',
+        dorisFacts ? '数据已备齐（下方「水滴企信 Doris 实时取数」），直接引用即可，不要再调 doris_query，避免重复查询浪费时间。' : '',
+        '',
+        dossier,
+        dorisFacts,
+      ].join('\n')
+      console.log(`[ai] 强制技能 ${skillName} → ${skillEnt.name}（${skillIntent}，Doris ${dorisFacts ? dorisFacts.length + '字' : '未取到'}）`)
+    } else if (extEnt) {
+      systemPrompt = [
+        AGENT_SYSTEM[agentType] || AGENT_SYSTEM.service,
+        '',
+        skillProto,
+        '',
+        '【外部企业检索】',
+        `用户提到的「${extEnt}」不在平台样本库内。`,
+        dorisFacts
+          ? `已在数据仓库命中该企业并预取数据（见下方），直接基于预取结果输出六部分内容，不要再调 doris_query。`
+          : '必须先调用 doris_query 按企业名称精确检索该企业（表名不要加库前缀，首选 opt_company_base），基于工具返回结果输出。',
+        '任一维度取不到写「未获取」，不得用样本库其他企业的数据顶替，也不得编造。',
+        '',
+        dorisFacts,
+      ].join('\n')
+      console.log(`[ai] 外部企业检索 ${skillName} → ${extEnt}（${skillIntent}，Doris ${dorisFacts ? dorisFacts.length + '字' : '未命中'}）`)
+    } else {
+      systemPrompt = AGENT_SYSTEM[agentType] || AGENT_SYSTEM.service
+    }
     if (llmConfigured()) {
       try {
         const ctx = await buildDataContext(agentType)
@@ -395,7 +478,7 @@ export default async function (fastify: FastifyInstance) {
             // 最后一次调用只给剩余预算：超时抛错后直接走收口，不让用户干等
             msg = await llmChatWithTools(msgs, allTools, {
               timeoutMs: Math.max(8000, left),
-              maxTokens: skillEnt ? 9000 : 6000,
+              maxTokens: skillEnt || extEnt ? 9000 : 6000,
             })
           } catch (llmErr: any) {
             console.warn('[ai] 工具轮调用失败/超时：', llmErr?.message || llmErr)
@@ -456,7 +539,7 @@ export default async function (fastify: FastifyInstance) {
                   content: `用户问题：${message}\n\n以下是刚从数据仓库查到的真实结果：\n\n${digest}\n\n请基于以上结果直接给出结论，不要再调用工具，不要提及"查询"过程本身。`,
                 },
               ],
-              { maxTokens: skillEnt ? 9000 : 6000 }
+              { maxTokens: skillEnt || extEnt ? 9000 : 6000 }
             )
             console.log('[ai] 已强制收口生成结论')
           } catch (e: any) {

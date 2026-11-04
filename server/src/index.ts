@@ -28,8 +28,10 @@ const app = fastify({
       : { level: process.env.LOG_LEVEL || 'info' },
   bodyLimit: 5 * 1024 * 1024,
   // 请求超时：避免慢客户端占住连接（Node 默认无限）
-  connectionTimeout: 30_000,
-  requestTimeout: 60_000,
+  // requestTimeout 需覆盖「强制技能六段报告」的生成耗时（实测 30-60s，偶发超 60s），
+  // 否则连接会在响应发出前被服务端掐断，前端表现为「无响应/Network Error」。
+  connectionTimeout: 150_000,
+  requestTimeout: 150_000,
 })
 
 // CORS —— 单体部署下前后端同源，无需跨域；仅开发模式放开
