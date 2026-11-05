@@ -283,7 +283,7 @@
       "</div>" +
       "</div>" +
       '<div class="col-2 card">' +
-      '<div class="card-title">近 6 月项目落地趋势</div>' +
+      '<div class="card-title">近 12 月项目落地趋势</div>' +
       '<div id="c_proj_trend" class="chart" style="height:260px"></div>' +
       "</div>" +
       "</div>" +
@@ -481,17 +481,18 @@
     }
   }
 
-  // 近 6 月项目落地趋势 —— 按真实项目日期聚合
+  // 近 12 月项目落地趋势 —— 按真实项目日期聚合
   // 2026-11 修正：旧实现有两处错
   //   ① X 轴取 M.MONTHS（今年 1 月至当月）的前 6 项，于是永远显示 1-6 月，
   //      与「近 6 月」不符（mock 里早有 M.MONTHS_6 = 近 6 个月含当月，注释写着"保留兼容"没人用）；
   //   ② 数据用固定种子 RNG 编造（base = 项目数/12），与项目的 startDate / signDate 无关，
   //      结果「新增项目」6 个月合计恒 ≈ 项目总数，和项目清单、KPI 全都对不上。
-  // 现口径：新增 = startDate 落在当月（项目立项）；落地 = signDate 落在当月（仅 stage≥2 有值）。
+  // 现口径：窗口 = 近 12 个月（含当月，跨年自动带年份）；新增 = startDate 落在当月（项目立项）；
+  //         落地 = signDate 落在当月（仅 stage≥2 有值）。
   function renderProjTrend() {
     var now = new Date();
     var keys = [], labels = [];
-    for (var k = 5; k >= 0; k--) {
+    for (var k = 11; k >= 0; k--) {
       var d = new Date(now.getFullYear(), now.getMonth() - k, 1);
       keys.push(d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2));
       // 跨年时带上年份，避免"12月/1月"看起来像同一年
@@ -537,7 +538,7 @@
         textStyle: { fontSize: 11 },
       },
       grid: { left: 40, right: 20, top: 30, bottom: 30 },
-      xAxis: { type: "category", data: labels, axisLabel: { fontSize: 10 } },
+      xAxis: { type: "category", data: labels, axisLabel: { fontSize: 9, interval: 0 } },
       yAxis: { type: "value", axisLabel: { fontSize: 10 } },
       series: [
         {
