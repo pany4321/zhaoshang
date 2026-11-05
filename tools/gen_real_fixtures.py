@@ -829,6 +829,22 @@ def main():
     STAGE_DIST = [0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 2, 3, 4, 1]
     ORGS = ['市招商局', '西峰区招商服务中心', '庆城县招商局', '环县招商服务中心',
             '华池县招商局', '合水县招商服务中心', '正宁县招商局', '宁县招商服务中心', '镇原县招商局']
+    # 立项日期（演示口径，规则生成）：窗口 = 近 11 个完整月（上月往前推，不含当月），
+    # 保证每个自然月至少 1 个项目立项，让「近 12 月项目落地趋势」每月都有数据。
+    # 2026-11 修正：原实现 `1 + dh(...) % 8` 只落在 1-8 月，9-12 月永远为空。
+    win = []
+    for back in range(11, 0, -1):
+        idx = (TODAY.year * 12 + TODAY.month - 1) - back
+        win.append((idx // 12, idx % 12 + 1))
+    months_of = [dh(e['creditCode'], 'ps') % len(win) for e in proj_pool]
+    _cnt = Counter(months_of)
+    _missing = [m for m in range(len(win)) if _cnt.get(m, 0) == 0]
+    _donors = [i for i, m in enumerate(months_of) if _cnt[m] > 1]
+    for _m, _i in zip(_missing, _donors):
+        _cnt[months_of[_i]] -= 1
+        months_of[_i] = _m
+        _cnt[_m] += 1
+
     projects = []
     for i, ent in enumerate(proj_pool):
         st = STAGE_DIST[i] if i < len(STAGE_DIST) else (i % 6)
@@ -839,7 +855,7 @@ def main():
             'investment': ent['investment'], 'districtId': ent['districtId'],
             'industryId': ent['industryId'], 'org': ORGS[dh(ent['creditCode'], 'org') % 9],
             'contact': ent['legal'], 'riskLevel': ent['riskLevel'], 'riskScore': ent['riskScore'],
-            'startDate': f'2026-{1 + dh(ent["creditCode"], "ps") % 8:02d}-{1 + dh(ent["creditCode"], "pd") % 27:02d}',
+            'startDate': f'{win[months_of[i]][0]}-{win[months_of[i]][1]:02d}-{1 + dh(ent["creditCode"], "pd") % 27:02d}',
             'stage1Detail': None, 'stage2Detail': None, 'stage3Detail': None,
             'stage4Detail': None, 'stage5Detail': None, 'stage6Detail': None,
             'lastContact': f'2026-{9 + dh(ent["creditCode"], "lc") % 2:02d}-{1 + dh(ent["creditCode"], "lcd") % 27:02d}',

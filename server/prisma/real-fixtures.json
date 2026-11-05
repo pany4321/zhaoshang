@@ -1,6 +1,6 @@
 {
  "_source": "真实工商数据（Doris opt_company_base / 国家企业信用信息公示系统）+ 规则推导招商指标",
- "generatedAt": "2026-11-04 20:55:28",
+ "generatedAt": "2026-11-05 08:50:25",
  "districts": [
   {
    "id": "xf",
@@ -9278,7 +9278,7 @@
    "contact": "王大龙",
    "riskLevel": "blue",
    "riskScore": 19,
-   "startDate": "2026-07-07",
+   "startDate": "2025-12-07",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9302,7 +9302,7 @@
    "contact": "向勇",
    "riskLevel": "blue",
    "riskScore": 21,
-   "startDate": "2026-01-18",
+   "startDate": "2026-09-18",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9350,7 +9350,7 @@
    "contact": "魏正刚",
    "riskLevel": "yellow",
    "riskScore": 31,
-   "startDate": "2026-06-25",
+   "startDate": "2026-02-25",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9374,7 +9374,7 @@
    "contact": "陈虎平",
    "riskLevel": "yellow",
    "riskScore": 30,
-   "startDate": "2026-06-12",
+   "startDate": "2026-07-12",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9382,7 +9382,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-09-15",
-   "signDate": "2026-11-04"
+   "signDate": "2026-11-05"
   },
   {
    "id": "P006",
@@ -9398,7 +9398,7 @@
    "contact": "毛燕",
    "riskLevel": "orange",
    "riskScore": 51,
-   "startDate": "2026-02-27",
+   "startDate": "2026-07-27",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9406,7 +9406,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-10-06",
-   "signDate": "2026-11-04"
+   "signDate": "2026-11-05"
   },
   {
    "id": "P007",
@@ -9422,7 +9422,7 @@
    "contact": "高忠国",
    "riskLevel": "blue",
    "riskScore": 20,
-   "startDate": "2026-08-03",
+   "startDate": "2026-07-03",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9430,7 +9430,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-10-19",
-   "signDate": "2026-09-20"
+   "signDate": "2026-08-20"
   },
   {
    "id": "P008",
@@ -9446,7 +9446,7 @@
    "contact": "薛正兴",
    "riskLevel": "yellow",
    "riskScore": 43,
-   "startDate": "2026-06-12",
+   "startDate": "2026-10-12",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9454,7 +9454,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-09-03",
-   "signDate": "2026-11-04"
+   "signDate": "2026-11-05"
   },
   {
    "id": "P009",
@@ -9470,7 +9470,7 @@
    "contact": "陈维",
    "riskLevel": "red",
    "riskScore": 78,
-   "startDate": "2026-07-07",
+   "startDate": "2026-08-07",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9478,7 +9478,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-09-12",
-   "signDate": "2026-08-26"
+   "signDate": "2026-09-26"
   },
   {
    "id": "P010",
@@ -9494,7 +9494,7 @@
    "contact": "李海瑞",
    "riskLevel": "blue",
    "riskScore": 9,
-   "startDate": "2026-03-07",
+   "startDate": "2026-02-07",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9502,7 +9502,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-09-15",
-   "signDate": "2026-04-07"
+   "signDate": "2026-03-10"
   },
   {
    "id": "P011",
@@ -9518,7 +9518,7 @@
    "contact": "谢旭",
    "riskLevel": "orange",
    "riskScore": 50,
-   "startDate": "2026-03-24",
+   "startDate": "2026-01-24",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9526,7 +9526,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-10-07",
-   "signDate": "2026-04-29"
+   "signDate": "2026-03-01"
   },
   {
    "id": "P012",
@@ -9542,7 +9542,7 @@
    "contact": "王海峰",
    "riskLevel": "blue",
    "riskScore": 13,
-   "startDate": "2026-01-20",
+   "startDate": "2026-08-20",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9550,7 +9550,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-10-18",
-   "signDate": "2026-03-04"
+   "signDate": "2026-10-02"
   },
   {
    "id": "P013",
@@ -9566,7 +9566,7 @@
    "contact": "李行",
    "riskLevel": "yellow",
    "riskScore": 36,
-   "startDate": "2026-05-03",
+   "startDate": "2026-06-03",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9574,7 +9574,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-10-01",
-   "signDate": "2026-07-01"
+   "signDate": "2026-08-01"
   },
   {
    "id": "P014",
@@ -9590,7 +9590,7 @@
    "contact": "王有武",
    "riskLevel": "blue",
    "riskScore": 23,
-   "startDate": "2026-06-25",
+   "startDate": "2026-01-25",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9598,7 +9598,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-10-04",
-   "signDate": "2026-08-04"
+   "signDate": "2026-03-06"
   },
   {
    "id": "P015",
@@ -9614,7 +9614,7 @@
    "contact": "陈明德",
    "riskLevel": "yellow",
    "riskScore": 39,
-   "startDate": "2026-05-24",
+   "startDate": "2026-04-24",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9622,7 +9622,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-10-09",
-   "signDate": "2026-07-08"
+   "signDate": "2026-06-08"
   },
   {
    "id": "P016",
@@ -9638,7 +9638,7 @@
    "contact": "马彦龙",
    "riskLevel": "red",
    "riskScore": 69,
-   "startDate": "2026-02-15",
+   "startDate": "2026-06-15",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9646,7 +9646,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-10-10",
-   "signDate": "2026-03-27"
+   "signDate": "2026-07-25"
   },
   {
    "id": "P017",
@@ -9662,7 +9662,7 @@
    "contact": "袁波",
    "riskLevel": "blue",
    "riskScore": 23,
-   "startDate": "2026-02-04",
+   "startDate": "2026-03-04",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9670,7 +9670,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-09-05",
-   "signDate": "2026-03-16"
+   "signDate": "2026-04-13"
   },
   {
    "id": "P018",
@@ -9686,7 +9686,7 @@
    "contact": "付建春",
    "riskLevel": "yellow",
    "riskScore": 42,
-   "startDate": "2026-04-15",
+   "startDate": "2026-01-15",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
@@ -9694,7 +9694,7 @@
    "stage5Detail": null,
    "stage6Detail": null,
    "lastContact": "2026-09-21",
-   "signDate": "2026-06-01"
+   "signDate": "2026-03-03"
   },
   {
    "id": "P019",
@@ -9710,7 +9710,7 @@
    "contact": "关鹏",
    "riskLevel": "yellow",
    "riskScore": 35,
-   "startDate": "2026-06-08",
+   "startDate": "2026-03-08",
    "stage1Detail": null,
    "stage2Detail": null,
    "stage3Detail": null,
