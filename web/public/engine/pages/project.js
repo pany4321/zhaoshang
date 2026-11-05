@@ -481,26 +481,63 @@
     }
   }
 
+  // 近 6 月项目落地趋势 —— 按真实项目日期聚合
+  // 2026-11 修正：旧实现有两处错
+  //   ① X 轴取 M.MONTHS（今年 1 月至当月）的前 6 项，于是永远显示 1-6 月，
+  //      与「近 6 月」不符（mock 里早有 M.MONTHS_6 = 近 6 个月含当月，注释写着"保留兼容"没人用）；
+  //   ② 数据用固定种子 RNG 编造（base = 项目数/12），与项目的 startDate / signDate 无关，
+  //      结果「新增项目」6 个月合计恒 ≈ 项目总数，和项目清单、KPI 全都对不上。
+  // 现口径：新增 = startDate 落在当月（项目立项）；落地 = signDate 落在当月（仅 stage≥2 有值）。
   function renderProjTrend() {
-    var months = M.MONTHS;
-    var base = Math.ceil(M.PROJECTS.length / 12);
-    var rng = U.makeRng(20260801);
-    var newData = [],
-      landData = [];
-    for (var i = 0; i < 6; i++) {
-      var n = Math.max(1, Math.round(base + (rng() - 0.4) * base));
-      newData.push(n);
-      landData.push(Math.max(1, Math.round(n * 0.6 + (rng() - 0.3) * 2)));
+    var now = new Date();
+    var keys = [], labels = [];
+    for (var k = 5; k >= 0; k--) {
+      var d = new Date(now.getFullYear(), now.getMonth() - k, 1);
+      keys.push(d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2));
+      // 跨年时带上年份，避免"12月/1月"看起来像同一年
+      labels.push((d.getFullYear() !== now.getFullYear() ? String(d.getFullYear()).slice(2) + "年" : "") + (d.getMonth() + 1) + "月");
     }
+    // 取项目日期：优先真实字段，缺失时退回 timeline 节点（mock 兜底数据没有 startDate/signDate 字段）
+    function projDate(p, kind) {
+      if (kind === "sign") {
+        if (p.signDate) return p.signDate;
+        var st = (p.timeline || []).filter(function (x) { return x.stage === "签约落地"; })[0];
+        return st ? st.date : null;
+      }
+      if (p.startDate) return p.startDate;
+      var real = (p.timeline || []).filter(function (x) {
+        return String(x.date || "").indexOf("（计划）") < 0;
+      });
+      return real.length ? real[0].date : null;
+    }
+    function countBy(kind) {
+      return keys.map(function (key) {
+        return M.PROJECTS.filter(function (p) {
+          return String(projDate(p, kind) || "").slice(0, 7) === key;
+        }).length;
+      });
+    }
+    var newData = countBy("start");
+    var landData = countBy("sign");
     mkChart(U.$("#c_proj_trend"), {
-      tooltip: { trigger: "axis" },
+      tooltip: {
+        trigger: "axis",
+        formatter: function (ps) {
+          if (!ps || !ps.length) return "";
+          var out = "<b>" + ps[0].axisValue + "</b>";
+          ps.forEach(function (p) {
+            out += "<br/>" + p.marker + p.seriesName + "：" + p.value + " 个";
+          });
+          return out;
+        }
+      },
       legend: {
         data: ["新增项目", "落地项目"],
         top: 0,
         textStyle: { fontSize: 11 },
       },
       grid: { left: 40, right: 20, top: 30, bottom: 30 },
-      xAxis: { type: "category", data: months, axisLabel: { fontSize: 10 } },
+      xAxis: { type: "category", data: labels, axisLabel: { fontSize: 10 } },
       yAxis: { type: "value", axisLabel: { fontSize: 10 } },
       series: [
         {

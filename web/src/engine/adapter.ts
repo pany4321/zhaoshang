@@ -528,6 +528,7 @@ export function mapProject(p: RawProject): any {
     contact: p.contact || '招商专班 139****0000',
     progress: p.progress,
     signDate: p.signDate || null,
+    startDate: p.startDate || null,   // 项目立项日期（真实台账值；缺失时前端退回 timeline 节点）
     risk: p.riskLevel === 'red' ? '重大风险' : p.riskLevel === 'orange' ? '关注' : '正常',
     riskLevel: p.riskLevel,
     district: p.districtId || '',
