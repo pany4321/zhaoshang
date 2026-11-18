@@ -3264,7 +3264,9 @@ body {
 .toast.toast-warning { border-left-color: #F97316; }
 .toast.toast-error   { border-left-color: #e03131; }
 .toast.toast-info    { border-left-color: #3B82F6; }
-
+/* 按钮执行中禁用态：异步任务（AI 推荐 / PDF 导出等）期间给出明确视觉反馈 */
+.btn:disabled,
+.btn[disabled] { opacity: .55; cursor: not-allowed; }
 /* ===== Modal ===== */
 .modal-mask {
   position: fixed;

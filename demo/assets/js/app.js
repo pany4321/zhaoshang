@@ -435,15 +435,18 @@
     if (btn) { btn.textContent = '■ 停止演示'; btn.classList.add('playing'); }
     runDemoStep();
   }
-  function stopDemo() {
+  // keepPage=true：仅停止演示播放，不改变当前页面。
+  // 导航点击时必须传 true——否则会先把 state.page 重置为 dashboard，
+  // 导致「点击当前所在菜单反而被弹回驾驶舱」。
+  function stopDemo(keepPage) {
     state.demoPlaying = false;
     if (state.demoTimer) { clearTimeout(state.demoTimer); state.demoTimer = null; }
     var btn = U.$('#demoBtn');
     if (btn) { btn.textContent = '▶ 演示模式'; btn.classList.remove('playing'); }
     clearDemoTip();
     clearDemoHighlight();
-    // 演示结束后回到驾驶舱（首页）
-    if (state.page !== 'dashboard') {
+    // 演示结束后回到驾驶舱（首页）；由导航触发的停止（keepPage）不在此处理
+    if (!keepPage && state.page !== 'dashboard') {
       state.page = 'dashboard';
       render();
     }
@@ -520,7 +523,7 @@
     // 导航
     U.$$('.nav-item').forEach(function (n) {
       n.addEventListener('click', function () {
-        stopDemo();
+        stopDemo(true); // 仅停止演示播放，页面由下面的导航决定，不能顺手弹回驾驶舱
         document.body.classList.remove('nav-open'); // 小屏：选中后收起抽屉导航
         state.page = n.dataset.page;
         render();

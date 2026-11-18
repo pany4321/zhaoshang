@@ -14,6 +14,9 @@
   // 关键词动态筛选：记录焦点与光标位置，重渲染后恢复，避免打字中断
   var kwState = { active: false, pos: null };
   var _recommendedCount = 0; // 已完成 AI 推荐的候选企业数
+  // AI 推荐任务互斥锁：推荐任务执行完毕前，按钮再次点击一律忽略，
+  // 避免并发请求后端推荐接口、叠加多个结果弹窗。
+  var _aiRecRunning = false;
 
   function renderProject() {
     var f = state.filter.project;
@@ -384,8 +387,35 @@
     // AI 智能推荐按钮
     // AI 智能推荐按钮（候选池由后端从真实企业库轮转取，不再用前端虚构名单）
     U.$("#pjAiRec").addEventListener("click", function () {
-      openAiRecommendDialog();
+      // 互斥：上一轮推荐任务未执行完毕，直接忽略本次点击（不重复请求、不叠加弹窗）
+      if (_aiRecRunning) {
+        C.toast("AI 智能推荐任务执行中，请等待本轮完成后再点击", "info");
+        return;
+      }
+      _aiRecRunning = true;
+      var btn = this;
+      var originHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = "✦ AI 推荐执行中…";
+      // 推荐任务完成（结果渲染完毕或流程中止）后统一解锁
+      openAiRecommendDialog()
+        .catch(function (err) {
+          console.warn("[project] 推荐流程异常：", err && err.message ? err.message : err);
+        })
+        .then(function () {
+          _aiRecRunning = false;
+          btn.disabled = false;
+          btn.innerHTML = originHtml;
+        });
     });
+    // 任务执行中若页面发生重渲染，新生成的按钮同样保持禁用态，避免出现「可点击」的假象
+    if (_aiRecRunning) {
+      var busyBtn = U.$("#pjAiRec");
+      if (busyBtn) {
+        busyBtn.disabled = true;
+        busyBtn.innerHTML = "✦ AI 推荐执行中…";
+      }
+    }
     U.$("#pjAdd").addEventListener("click", function () {
       APP.openProjectForm();
     });
@@ -1225,6 +1255,12 @@
   }
 
   async function openAiRecommendDialog() {
+    // 本轮推荐任务的完成信号：结果渲染完毕（或流程中止）时 resolve，
+    // 调用方（按钮互斥锁）据此判断「任务已执行完毕」才允许下次点击。
+    var finishRec = null;
+    var recFinished = new Promise(function (resolve) { finishRec = resolve; });
+    function markFinished() { if (finishRec) { var f = finishRec; finishRec = null; f(); } }
+
     // 先取真实推荐结果，再走过程动画与渲染
     var apiRes = null;
     try {
@@ -1232,7 +1268,8 @@
     } catch (err) {
       console.warn('[project] 招商推荐不可用：', err && err.message ? err.message : err);
       C.toast('AI 推荐暂不可用，请稍后重试', 'warning');
-      return;
+      markFinished();
+      return recFinished;
     }
 
     var recommendations = apiRes.recommendations.map(function (r) {
@@ -1363,7 +1400,12 @@
     var stepIdx = 0;
     function runStep() {
       if (stepIdx >= thinkingSteps.length) {
-        showResults();
+        try {
+          showResults();
+        } finally {
+          // 结果已渲染（即使渲染抛错）→ 视为本轮任务执行完毕，释放互斥锁
+          markFinished();
+        }
         return;
       }
       var step = thinkingSteps[stepIdx];
@@ -1633,8 +1675,9 @@
       );
     });
 
-    // 启动思考过程
+    // 启动思考过程；本轮任务执行完毕（结果渲染完成）时返回的 Promise 才 resolve
     setTimeout(runStep, 400);
+    return recFinished;
   }
 
   APP.registerRenderer("project", renderProject);

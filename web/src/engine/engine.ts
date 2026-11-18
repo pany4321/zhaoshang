@@ -203,12 +203,15 @@ function installSync() {
 // —— Vue Router 桥：导航互同步（带防环比较） ——
 export function wireRouterBridge(router: any) {
   const APP = window.APP
+  // 驾驶舱的真实路由是 '/'（不是 '/dashboard'）；拼错会命中通配重定向，
+  // 表现为地址栏闪一下 /dashboard 再回 '/'。
+  const toPath = (page: string) => (page === 'dashboard' ? '/' : '/' + page)
   APP.navigate = (page: string) => {
-    const target = '/' + page
+    const target = toPath(page)
     if (router.currentRoute.value.path !== target) router.push(target)
   }
   APP.onRouteRendered = (page: string) => {
-    const target = '/' + page
+    const target = toPath(page)
     if (router.currentRoute.value.path !== target) router.push(target)
   }
 }

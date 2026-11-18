@@ -5,6 +5,63 @@
 
 ---
 
+## v5.1.33 — 2026-11-18 · 导航重复点击被弹回驾驶舱 + AI 推荐按钮并发点击
+
+两项交互缺陷，均由线上实测复现后修复，不涉及数据口径与接口契约。
+
+### 一、主菜单重复点击被弹回招商驾驶舱（九个菜单全部受影响）
+
+**现象**：在「企业概况」等任意页面，再次点击当前所在菜单，页面跳回招商驾驶舱。
+
+**根因**：`app-core.js`（全栈）与 `demo/app.js`（静态版）的导航点击处理均先调用 `stopDemo()`，而 `stopDemo()` 内写着「演示结束回驾驶舱」并无条件执行：
+
+```js
+n.addEventListener('click', function () {
+  stopDemo();                          // 把 state.page 置为 dashboard 并 render()
+  APP.navigate(n.dataset.page);
+});
+```
+
+`render()` 收尾调用 `APP.onRouteRendered('dashboard')`，路由桥接到 `/`（驾驶舱），此时再执行 `APP.navigate()` 时当前路由已改变，判断为「无需跳转」，页面即停在驾驶舱。浏览器 hook 记录的调用顺序为 `onRouteRendered(dashboard)` → `APP.navigate(enterprise)`，与该链路一致。
+
+**修复**：`stopDemo(keepPage)` 增加参数，仅当 `!keepPage` 时才回到驾驶舱；导航点击改传 `stopDemo(true)`。演示按钮与演示脚本自然结束两条路径行为不变（仍回驾驶舱）。`app-core.js` 属有意分化文件（不参与 `sync_engine.py`），与 `demo/app.js` 两处同步修改。
+
+### 二、AI 智能推荐按钮可并发触发
+
+**现象**：招商项目页点击「✦ AI 智能推荐」后按钮无任何变化，弹窗需等后端大模型返回才出现，用户连点导致并发多次调用 `/api/ai/project-recommend` 并叠加多个结果弹窗。
+
+**修复**：
+
+| 层 | 实现 |
+| --- | --- |
+| 互斥锁 | 模块级 `_aiRecRunning`，执行期间再次点击直接忽略并提示，不再发起请求 |
+| 按钮态 | 点击即 `disabled` + 文案「✦ AI 推荐执行中…」+ 半透明/禁止光标（`.btn:disabled`） |
+| 解锁时机 | 以结果渲染完成（`showResults` 末尾）为界，而非 fetch 返回即解锁；失败与渲染异常经 `try/finally` + `markFinished()` 兜底，不会永久锁死 |
+| 重渲染兜底 | 执行期间页面若重渲染，新生成的按钮同样保持禁用态 |
+
+### 三、顺带修正
+
+`web/src/engine/engine.ts` 的路由桥接中，`navigate('dashboard')` 原先拼出不存在的 `/dashboard`，依赖通配重定向 `/:pathMatch(.*)*` 才绕回 `/`，地址栏会闪现 `/dashboard`。现改为 dashboard 统一映射 `/`。
+
+### 四、验证
+
+| 项目 | 结果 |
+| --- | --- |
+| 九个菜单「点一次→再点一次」 | 9/9 停留本页，路径正确 |
+| 同一菜单连点 5 次 | 仍停留当前页 |
+| AI 推荐连点 5 次 + 绕过 disabled 强点 1 次 | 后端仅收到 1 次请求，弹窗仅 1 个 |
+| 推荐完成后再次点击 | 正常发起第 2 轮，锁可复用 |
+| demo 静态版（`/demo/`） | 同样通过 |
+| `npm test` | 前端 14 个脚本全绿（接口回归见下） |
+| 数据 | 88 企业 / 67 风险 / 78 任务 / 19 项目，与改动前一致 |
+
+### 五、已知项（本轮未处理）
+
+- `verify_web_api.cjs` 的政策数断言仍失败：fixtures=24，线上库实际 31 且持续增长（平台运行期新增政策）。属数据口径漂移，需重新导出 fixtures 或将政策改为库侧为准，待定。
+- `server` 进程内每日备份报「未找到备份脚本：…/server/tools/backup_db.mjs」，脚本实际位于 `projects/zhaoshang/tools/backup_db.mjs`，路径多拼一层 `server/`，导致自动备份空转（本次发布前已手工在线快照一次）。
+
+---
+
 ## v5.1.32 — 2026-11-05 · 项目立项日期扩到近 11 个完整月（先澄清数据性质）
 
 用户先问了关键问题：**「新增时间点是真实数据吗？」**
