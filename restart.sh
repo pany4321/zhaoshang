@@ -10,27 +10,25 @@ PORT=5443
 TOKEN_FILE=$BASE/.cloudflared/tunnel_token
 NAMED_LOG=$BASE/cf-named.log
 
-echo "== 停止旧进程 =="
-for pid in $(pgrep -f "node --env-file=.env dist/src/index.js" 2>/dev/null); do
-  kill -TERM "$pid" 2>/dev/null && echo "  已停止 node PID $pid"
-done
+echo "== 停止旧 cloudflared =="
+# 应用（node :5443）已交回 xiatang-site-runner 托管（published-sites/zs.yaml 的 command），
+# 本脚本不再启停 node —— 否则会与 runner 抢 5443，触发 port already in use 退避。
 for pid in $(pgrep -x cloudflared 2>/dev/null); do
   kill -TERM "$pid" 2>/dev/null && echo "  已停止 cloudflared PID $pid"
 done
 sleep 2
 
-echo "== 启动后端（端口 $PORT）=="
-cd "$APP/server" || exit 1
-nohup node --env-file=.env dist/src/index.js > "$BASE/server.log" 2>&1 &
-echo "  server PID $!"
-
-for i in $(seq 1 15); do
-  sleep 1
+echo "== 等待 runner 托管的应用就绪（端口 $PORT）=="
+for i in $(seq 1 30); do
   if curl -sf -m 2 "http://127.0.0.1:$PORT/api/health" > /dev/null 2>&1; then
-    echo "  ✅ 服务就绪 http://127.0.0.1:$PORT"
+    echo "  ✅ 应用就绪（runner 托管）http://127.0.0.1:$PORT"
     break
   fi
-  [ "$i" -eq 15 ] && { echo "  ❌ 启动失败，见 $BASE/server.log"; exit 1; }
+  sleep 2
+  if [ "$i" -eq 30 ]; then
+    echo "  ⚠ 应用未就绪。检查 runner：pgrep -af xiatang-site-runner"
+    echo "    若 runner 不在，不要在本脚本起 node，改用：bash $BASE/keepalive.sh"
+  fi
 done
 
 # ---------- 隧道 ----------
